@@ -1,0 +1,48 @@
+{
+   "gamingServer": {
+    "stage_1": {
+      "game": "CyberArena",
+      "stage_2": {
+        "playersOnline": 1200,
+        "stage_3": {
+          "maps": ["desert", "snow"],
+          "stage_4": {
+            "ranking": {
+              "mode": "competitive"
+            },
+            "stage_5": {
+              "antiCheat": {
+                "enabled": true
+              },
+              "stage_6": {
+                "voiceChat": {
+                  "provider": "discord"
+                },
+                "stage_7": {
+                  "events": {
+                    "weekendCup": true
+                  },
+                  "stage_8": {
+                    "mods": {
+                      "supported": true
+                    },
+                    "stage_9": {
+                      "streaming": {
+                        "twitchIntegration": true
+                      },
+                      "stage_10": {
+                        "serverScaling": {
+                          "autoScale": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

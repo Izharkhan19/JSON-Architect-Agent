@@ -1,0 +1,51 @@
+{
+   "project": {
+    "level_1": {
+      "id": "PRJ-001",
+      "level_2": {
+        "name": "AI Workflow Engine",
+        "level_3": {
+          "environment": "production",
+          "level_4": {
+            "region": "ap-south-1",
+            "level_5": {
+              "services": {
+                "auth": true,
+                "db": true
+              },
+              "level_6": {
+                "database": {
+                  "type": "postgresql",
+                  "version": "16"
+                },
+                "level_7": {
+                  "cache": {
+                    "enabled": true,
+                    "provider": "redis"
+                  },
+                  "level_8": {
+                    "monitoring": {
+                      "tool": "grafana"
+                    },
+                    "level_9": {
+                      "alerts": {
+                        "email": true,
+                        "slack": true
+                      },
+                      "level_10": {
+                        "deployment": {
+                          "strategy": "blue-green",
+                          "status": "active"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+   "userProfile": {
+    "depth_1": {
+      "username": "chintan_dev",
+      "depth_2": {
+        "personal": {
+          "age": 25
+        },
+        "depth_3": {
+          "skills": ["React", "Next.js"],
+          "depth_4": {
+            "experience": {
+              "years": 3
+            },
+            "depth_5": {
+              "preferences": {
+                "theme": "dark"
+              },
+              "depth_6": {
+                "devices": {
+                  "primary": "MacBook"
+                },
+                "depth_7": {
+                  "subscriptions": {
+                    "chatgpt": true
+                  },
+                  "depth_8": {
+                    "socials": {
+                      "linkedin": "active"
+                    },
+                    "depth_9": {
+                      "achievements": {
+                        "hackathons": 5
+                      },
+                      "depth_10": {
+                        "futureGoals": {
+                          "role": "SDE2",
+                          "location": "Dubai"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
