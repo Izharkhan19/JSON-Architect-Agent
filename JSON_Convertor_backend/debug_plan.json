@@ -1,0 +1,78 @@
+{
+  "plan_version": 1,
+  "root_source_id": "SOURCE_1",
+  "steps": [
+    {
+      "step": 1,
+      "action": "embed",
+      "parent_source_id": "SOURCE_1",
+      "anchor_path": [
+        "userProfile",
+        "depth_1",
+        "depth_2",
+        "depth_3",
+        "depth_4",
+        "depth_5",
+        "depth_6",
+        "depth_7"
+      ],
+      "child_source_id": "SOURCE_5",
+      "embed_mode": "merge_keys"
+    },
+    {
+      "step": 2,
+      "action": "embed",
+      "parent_source_id": "SOURCE_5",
+      "anchor_path": [
+        "project",
+        "level_1",
+        "level_2",
+        "level_3",
+        "level_4",
+        "level_5"
+      ],
+      "child_source_id": "SOURCE_2",
+      "embed_mode": "merge_keys"
+    },
+    {
+      "step": 3,
+      "action": "embed",
+      "parent_source_id": "SOURCE_2",
+      "anchor_path": [
+        "ecommerce",
+        "node_1",
+        "node_2",
+        "node_3",
+        "node_4",
+        "node_5",
+        "node_6",
+        "node_7",
+        "node_8",
+        "node_9"
+      ],
+      "child_source_id": "SOURCE_3",
+      "embed_mode": "merge_keys"
+    },
+    {
+      "step": 4,
+      "action": "embed",
+      "parent_source_id": "SOURCE_3",
+      "anchor_path": [
+        "gamingServer",
+        "stage_1",
+        "stage_2",
+        "stage_3",
+        "stage_4",
+        "stage_5",
+        "stage_6",
+        "stage_7",
+        "stage_8"
+      ],
+      "child_source_id": "SOURCE_4",
+      "embed_mode": "merge_keys"
+    }
+  ],
+  "verification": {
+    "single_root_required": true
+  }
+}
