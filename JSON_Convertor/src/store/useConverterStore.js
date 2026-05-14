@@ -41,7 +41,7 @@ const useConverterStore = create((set, get) => ({
 
   addFiles: async (files) => {
     let currentItems = get().items;
-    
+
     // Check if the first object is blank text, if so, remove it
     if (currentItems.length === 1 && currentItems[0].type === 'text' && currentItems[0].content.trim() === '') {
       currentItems = [];
@@ -54,14 +54,14 @@ const useConverterStore = create((set, get) => ({
         reader.onload = (e) => {
           const id = `file-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`;
           newIds.push(id);
-          
+
           // Calculate doc number based on existing file items
           const fileCount = currentItems.filter(i => i.type === 'file').length + idx + 1;
-          
+
           resolve({
             id,
             type: 'file',
-            content: e.target.result, 
+            content: e.target.result,
             name: file.name, // Use actual filename
             fileObj: file,
             jsonError: null
@@ -138,7 +138,7 @@ const useConverterStore = create((set, get) => ({
     set({ error: null, isGenerating: true });
 
     try {
-      const baseUrl = import.meta.env.VITE_API_BASEURL || `http://${window.location.hostname}:5000/api`;
+      const baseUrl = import.meta.env.VITE_API_BASEURL || `https://json-agent-backend.onrender.com/api`;
       const formData = new FormData();
 
       const jsonInputs = items.map(item => ({
@@ -154,11 +154,11 @@ const useConverterStore = create((set, get) => ({
       });
 
       // Properly log FormData for debugging
-      console.log('========== FORMDATA ENTRIES ==========');
+      // console.log('========== FORMDATA ENTRIES ==========');
       for (let [key, value] of formData.entries()) {
         console.log(`${key}:`, value instanceof File ? `${value.name} (${value.size} bytes)` : value);
       }
-      console.log('=====================================');
+      // console.log('=====================================');
 
       const response = await fetch(`${baseUrl}/convert`, {
         method: 'POST',
@@ -188,12 +188,12 @@ const useConverterStore = create((set, get) => ({
     }
   },
 
-  clearAll: () => set({ 
-    items: [{ id: Date.now(), type: 'text', content: '', name: 'Source 1', jsonError: null }], 
-    prompt: '', 
+  clearAll: () => set({
+    items: [{ id: Date.now(), type: 'text', content: '', name: 'Source 1', jsonError: null }],
+    prompt: '',
     lastUsedPrompt: '',
-    outputJson: '{}', 
-    error: null 
+    outputJson: '{}',
+    error: null
   })
 }));
 
