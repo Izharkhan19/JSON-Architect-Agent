@@ -92,3 +92,56 @@ body {
 .animate-shimmer {
   animation: shimmer 2s infinite linear;
 }
+
+/* ── Professional AI Loader ── */
+@keyframes orbit-outer {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes orbit-inner {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(-360deg); }
+}
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.95); }
+  50%       { opacity: 1;   transform: scale(1.05); }
+}
+@keyframes progress-sweep {
+  0%   { width: 0%;   opacity: 0.6; }
+  60%  { width: 85%;  opacity: 1;   }
+  100% { width: 95%;  opacity: 0.8; }
+}
+@keyframes loader-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+@keyframes dot-blink {
+  0%, 80%, 100% { opacity: 0.15; transform: scale(0.8); }
+  40%           { opacity: 1;    transform: scale(1.2); }
+}
+@keyframes text-cycle {
+  0%,100% { opacity: 0; transform: translateY(6px); }
+  15%,85% { opacity: 1; transform: translateY(0);   }
+}
+
+.ai-loader-card {
+  animation: loader-fade-up 0.4s ease both;
+}
+.orbit-outer {
+  animation: orbit-outer 1.8s linear infinite;
+}
+.orbit-inner {
+  animation: orbit-inner 1.2s linear infinite;
+}
+.glow-core {
+  animation: glow-pulse 1.5s ease-in-out infinite;
+}
+.progress-bar-fill {
+  animation: progress-sweep 3s ease-out forwards;
+}
+.dot1 { animation: dot-blink 1.4s ease-in-out infinite 0s;    }
+.dot2 { animation: dot-blink 1.4s ease-in-out infinite 0.2s;  }
+.dot3 { animation: dot-blink 1.4s ease-in-out infinite 0.4s;  }
+.loader-msg {
+  animation: text-cycle 1.5s ease-in-out;
+}

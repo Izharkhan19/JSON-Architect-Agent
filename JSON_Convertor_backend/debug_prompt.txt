@@ -81,7 +81,6 @@ append @mohandemo.txt to depth_7 in @doc2.txt
 append @doc3.txt to level_5 in @mohandemo.txt
 append @doc4.txt to node_9 in @doc3.txt
 append @doc5.txt to stage_8 in @doc4.txt
-group analytics by object
 
 SOURCES:
 ### DATA SOURCE: doc2.txt (ID: SOURCE_1)
