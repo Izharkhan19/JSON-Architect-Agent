@@ -107,6 +107,18 @@ DECISION LOGIC:
 - User wants to EMBED/ADD sources into each other at specific paths → MERGE
 - User mentions multiple sources with hierarchical embedding instructions → MERGE
 - User specifies a "main object" or "root" with other sources to be added → MERGE
+
+INJECTION STATEMENTS (IMPORTANT):
+- Pattern: @Source X path.to[index] : @Source Y (NO quoted key before it)
+- Example: @Source 3 ecommerce.categories[1] : @Source 2
+- This means: inject Source Y INTO Source X at the specified path
+- In the example above: inject SOURCE_2 into SOURCE_3 at ecommerce.categories[1]
+- target_source_id = SOURCE_3 (the one BEFORE the path)
+- value_source_id = SOURCE_2 (the one AFTER the colon)
+- Injections should ONLY be added as "mutations", NOT as separate "parts" in the output
+- Do NOT create an output key for injection statements
+- Only lines with "key": @Source pattern create output keys in "parts"
+- The format is: @TARGET path : @VALUE (target comes first, value comes after colon)
 - Look at the DATA SOURCES schema to find correct paths
 - Users can refer to the same source with aliases such as @filename, filename, @Source 1, @Source1, or the display name in SOURCE REFERENCE DIRECTORY
 - Be flexible with key names - find closest match in schema

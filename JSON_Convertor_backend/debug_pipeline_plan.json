@@ -1,32 +1,16 @@
 {
   "mode": "pipeline",
-  "root_source_id": "SOURCE_1",
+  "root_source_id": "SOURCE_2",
   "stages": [
     {
       "stage": 1,
-      "type": "merge",
-      "description": "Embed Source 2 into Source 1 as the last object.",
-      "steps": [
+      "type": "group",
+      "description": "Group students by CGPA within the university structure.",
+      "operations": [
         {
-          "action": "embed",
-          "parent_source_id": "SOURCE_1",
-          "child_source_id": "SOURCE_2",
-          "anchor_path": ["groupedTasksByStatus", "In Progress", "0", "gamingPlatform"],
-          "embed_mode": "merge_keys"
-        }
-      ]
-    },
-    {
-      "stage": 2,
-      "type": "merge",
-      "description": "Add last object of Source 3 as key 'haju' in Source 2.",
-      "steps": [
-        {
-          "action": "embed",
-          "parent_source_id": "SOURCE_2",
-          "child_source_id": "SOURCE_3",
-          "anchor_path": ["gamingPlatform", "regions", "0", "servers", "0", "games", "0", "rooms", "0", "haju"],
-          "embed_mode": "merge_keys"
+          "op": "group",
+          "collection": "university.campuses.faculties.programs.semesters.subjects.students",
+          "by": "profile.academic.cgpa"
         }
       ]
     }

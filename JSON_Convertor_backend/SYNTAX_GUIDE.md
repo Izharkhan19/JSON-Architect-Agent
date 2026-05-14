@@ -187,3 +187,97 @@ System auto-finds `level_7` regardless of nesting depth.
 3. **Array keyword** - Say "array of objects" to get `[{}, {}]` format
 4. **Whitespace** - Spaces around `:` and `,` are optional
 5. **Source naming** - `Source 1`, `SOURCE_1`, `source 1` all work the same
+
+---
+
+## Array Operations (Advanced)
+
+### Filtering Arrays
+```
+@Source 1 users[status=active]              → Filter where status equals "active"
+@Source 1 items[price>100]                  → Filter where price > 100
+@Source 1 orders[quantity>=5]               → Filter where quantity >= 5
+@Source 1 users[role!=admin]                → Filter where role is not "admin"
+```
+
+Or use the `filter()` function:
+```
+@Source 1 users.filter(status=active)
+@Source 1 products.filter(price<50)
+```
+
+### Sorting Arrays
+```
+@Source 1 users.sort(asc:name)              → Sort ascending by name
+@Source 1 orders.sort(desc:date)            → Sort descending by date
+@Source 1 items.sort(asc:price)             → Sort ascending by price
+```
+
+### Array Slicing
+```
+@Source 1 items.slice(0,5)                  → First 5 items
+@Source 1 items.slice(10)                   → Items from index 10 onwards
+@Source 1 items.slice(-3)                   → Last 3 items
+```
+
+### First/Last Elements
+```
+@Source 1 items.first                       → First item (single object)
+@Source 1 items.first(3)                    → First 3 items (array)
+@Source 1 items.last                        → Last item (single object)
+@Source 1 items.last(5)                     → Last 5 items (array)
+```
+
+### Count/Length
+```
+@Source 1 users.count                       → Number of items (returns integer)
+@Source 1 items.length                      → Same as count
+```
+
+### Other Operations
+```
+@Source 1 items.reverse                     → Reverse array order
+@Source 1 items.unique                      → Remove duplicates
+@Source 1 nested.flatten                    → Flatten nested arrays
+```
+
+### Chaining Operations
+```
+@Source 1 users.filter(active=true).sort(asc:name).first(10)
+```
+Filter active users → Sort by name → Take first 10
+
+### Map/Extract from All Items
+```
+@Source 1 users[*].name                     → Extract 'name' from all users
+@Source 1 orders[*].total                   → Extract 'total' from all orders
+```
+
+---
+
+## Complex Examples
+
+### Example: Filter + Sort + Limit
+**Source 1:** `{"products": [{"name": "A", "price": 100}, {"name": "B", "price": 50}, ...]}`
+
+**Prompt:**
+```
+{
+  "cheapProducts": @Source 1 products.filter(price<100).sort(asc:price).first(5)
+}
+```
+
+### Example: Dynamic Composition with Array Operations
+**Prompt:**
+```
+"activeUsers": @Source 1 users[status=active].sort(desc:lastLogin),
+"totalOrders": @Source 2 orders.count,
+"recentItems": @Source 3 items.sort(desc:createdAt).first(10)
+```
+
+### Example: Injection with Path Operations
+**Prompt:**
+```
+"dashboard": @Source 1, @Source 1[topUsers]: @Source 2 users.filter(premium=true).first(5)
+```
+Injects filtered premium users into Source 1 at "topUsers" path.

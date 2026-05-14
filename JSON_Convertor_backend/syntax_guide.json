@@ -102,6 +102,68 @@
       ]
     },
     {
+      "id": "array-operations",
+      "title": "Array Operations",
+      "description": "Filter, sort, slice, and transform arrays dynamically",
+      "examples": [
+        {
+          "syntax": "@Source 1 users[status=active]",
+          "description": "Filter: where status equals 'active'",
+          "output": "[{...active users...}]"
+        },
+        {
+          "syntax": "@Source 1 items.filter(price>100)",
+          "description": "Filter: where price > 100",
+          "output": "[{...expensive items...}]"
+        },
+        {
+          "syntax": "@Source 1 users.sort(asc:name)",
+          "description": "Sort ascending by name",
+          "output": "[{sorted by name A-Z}]"
+        },
+        {
+          "syntax": "@Source 1 orders.sort(desc:date)",
+          "description": "Sort descending by date",
+          "output": "[{newest first}]"
+        },
+        {
+          "syntax": "@Source 1 items.slice(0,5)",
+          "description": "Get first 5 items",
+          "output": "[{first 5 items}]"
+        },
+        {
+          "syntax": "@Source 1 items.first(3)",
+          "description": "Get first 3 items",
+          "output": "[{first 3}]"
+        },
+        {
+          "syntax": "@Source 1 items.last",
+          "description": "Get last item",
+          "output": "{last item}"
+        },
+        {
+          "syntax": "@Source 1 users.count",
+          "description": "Get count of items",
+          "output": "42"
+        },
+        {
+          "syntax": "@Source 1 items.reverse",
+          "description": "Reverse array order",
+          "output": "[{reversed}]"
+        },
+        {
+          "syntax": "@Source 1 users[*].name",
+          "description": "Extract 'name' from all users",
+          "output": "[\"Alice\", \"Bob\", ...]"
+        },
+        {
+          "syntax": "@Source 1 users.filter(active=true).sort(asc:name).first(10)",
+          "description": "Chain: filter → sort → limit",
+          "output": "[{top 10 active users sorted}]"
+        }
+      ]
+    },
+    {
       "id": "path-operators",
       "title": "Path Operators",
       "operators": [

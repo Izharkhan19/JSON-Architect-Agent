@@ -2,151 +2,74 @@
   "mode": "unified_pipeline",
   "plan": {
     "mode": "pipeline",
-    "root_source_id": "SOURCE_1",
+    "root_source_id": "SOURCE_2",
     "stages": [
       {
         "stage": 1,
-        "type": "merge",
-        "description": "Embed Source 2 into Source 1 as the last object.",
-        "steps": [
+        "type": "group",
+        "description": "Group students by CGPA within the university structure.",
+        "operations": [
           {
-            "action": "embed",
-            "parent_source_id": "SOURCE_1",
-            "child_source_id": "SOURCE_2",
-            "anchor_path": [
-              "groupedTasksByStatus",
-              "In Progress",
-              "0",
-              "gamingPlatform"
-            ],
-            "embed_mode": "merge_keys"
-          }
-        ]
-      },
-      {
-        "stage": 2,
-        "type": "merge",
-        "description": "Add last object of Source 3 as key 'haju' in Source 2.",
-        "steps": [
-          {
-            "action": "embed",
-            "parent_source_id": "SOURCE_2",
-            "child_source_id": "SOURCE_3",
-            "anchor_path": [
-              "gamingPlatform",
-              "regions",
-              "0",
-              "servers",
-              "0",
-              "games",
-              "0",
-              "rooms",
-              "0",
-              "haju"
-            ],
-            "embed_mode": "merge_keys"
+            "op": "group",
+            "collection": "university.campuses.faculties.programs.semesters.subjects.students",
+            "by": "profile.academic.cgpa"
           }
         ]
       }
     ]
   },
-  "pipelineLog": [
-    {
-      "stage": 1,
-      "type": "merge",
-      "steps": 1,
-      "status": "collected"
-    },
-    {
-      "stage": 2,
-      "type": "merge",
-      "steps": 1,
-      "status": "collected"
-    },
-    {
-      "stage": "merge_consolidated",
-      "type": "merge",
-      "steps": 2,
-      "status": "success"
-    }
-  ],
+  "pipelineLog": [],
   "data": {
-    "groupedTasksByStatus": {
-      "In Progress": {
-        "0": {
-          "gamingPlatform": {
-            "gamingPlatform": {
-              "platformId": "GPL001",
-              "platformName": "GameVerse",
-              "regions": {
-                "0": {
-                  "servers": {
-                    "0": {
-                      "games": {
-                        "0": {
-                          "rooms": {
-                            "0": {
-                              "haju": {
-                                "hospital": {
-                                  "hospitalId": "HSP001",
-                                  "hospitalName": "LifeCare Hospital",
-                                  "branches": [
-                                    {
-                                      "branchId": "BR001",
-                                      "location": {
-                                        "city": "Ahmedabad",
-                                        "state": "Gujarat"
-                                      },
-                                      "departments": [
-                                        {
-                                          "departmentId": "D001",
-                                          "departmentName": "Cardiology",
-                                          "doctors": [
-                                            {
-                                              "doctorId": "DOC001",
-                                              "profile": {
-                                                "name": "Dr. Mehta",
-                                                "specialization": "Heart Surgery"
-                                              },
-                                              "patients": [
-                                                {
-                                                  "patientId": "PAT001",
-                                                  "medicalHistory": {
-                                                    "diseases": [
-                                                      {
-                                                        "diseaseId": "DIS001",
-                                                        "name": "Hypertension",
-                                                        "medications": [
-                                                          {
-                                                            "medicineId": "MED001",
-                                                            "medicineName": "Amlodipine"
-                                                          }
-                                                        ]
-                                                      }
-                                                    ]
-                                                  }
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
+    "university": {
+      "universityId": "UNI001",
+      "name": "Global Tech University",
+      "campuses": [
+        {
+          "campusId": "CAMP001",
+          "location": {
+            "country": "India",
+            "state": "Maharashtra",
+            "city": "Pune"
+          },
+          "faculties": [
+            {
+              "facultyId": "FAC001",
+              "facultyName": "Computer Science",
+              "programs": [
+                {
+                  "programId": "PROG001",
+                  "programName": "B.Tech AI",
+                  "semesters": [
+                    {
+                      "semesterId": "SEM001",
+                      "subjects": [
+                        {
+                          "subjectId": "SUB001",
+                          "subjectName": "Machine Learning",
+                          "students": [
+                            {
+                              "studentId": "STU001",
+                              "profile": {
+                                "name": {
+                                  "first": "Mohan",
+                                  "last": "Prajapati"
+                                },
+                                "academic": {
+                                  "cgpa": 8.9
                                 }
                               }
                             }
-                          }
+                          ]
                         }
-                      }
+                      ]
                     }
-                  }
+                  ]
                 }
-              }
+              ]
             }
-          }
+          ]
         }
-      }
+      ]
     }
   }
 }

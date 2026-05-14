@@ -625,6 +625,284 @@ const setCaseInsensitivePath = (data, pathArr, value) => {
   return data;
 };
 
+// ─────────────────────────────────────────
+// ADVANCED PATH EVALUATION WITH ARRAY OPERATIONS
+// Supports: filtering, sorting, slicing, mapping, first/last/count
+// ─────────────────────────────────────────
+
+const evaluateArrayOperation = (arr, operation) => {
+  if (!Array.isArray(arr)) return arr;
+  
+  const op = String(operation || '').trim();
+  
+  // Sort operations: sort(asc:field) or sort(desc:field)
+  const sortMatch = op.match(/^sort\s*\(\s*(asc|desc)\s*:\s*([^)]+)\s*\)$/i);
+  if (sortMatch) {
+    const direction = sortMatch[1].toLowerCase();
+    const field = sortMatch[2].trim();
+    const sorted = [...arr].sort((a, b) => {
+      const valA = readCaseInsensitivePath(a, field.split('.'));
+      const valB = readCaseInsensitivePath(b, field.split('.'));
+      if (valA === valB) return 0;
+      if (valA === undefined) return 1;
+      if (valB === undefined) return -1;
+      const cmp = valA < valB ? -1 : 1;
+      return direction === 'asc' ? cmp : -cmp;
+    });
+    console.log(`[ARRAY OP] sort(${direction}:${field}) -> ${sorted.length} items`);
+    return sorted;
+  }
+  
+  // Filter operations: filter(field=value), filter(field>value), filter(field<value)
+  const filterMatch = op.match(/^filter\s*\(\s*([^=<>!]+)\s*(=|!=|>|<|>=|<=)\s*([^)]+)\s*\)$/i);
+  if (filterMatch) {
+    const field = filterMatch[1].trim();
+    const operator = filterMatch[2];
+    let compareValue = filterMatch[3].trim();
+    
+    // Try to parse as number
+    const numValue = Number(compareValue);
+    if (!isNaN(numValue)) compareValue = numValue;
+    // Remove quotes if string
+    if (typeof compareValue === 'string' && /^["'].*["']$/.test(compareValue)) {
+      compareValue = compareValue.slice(1, -1);
+    }
+    
+    const filtered = arr.filter(item => {
+      const val = readCaseInsensitivePath(item, field.split('.'));
+      switch (operator) {
+        case '=': return val == compareValue;
+        case '!=': return val != compareValue;
+        case '>': return val > compareValue;
+        case '<': return val < compareValue;
+        case '>=': return val >= compareValue;
+        case '<=': return val <= compareValue;
+        default: return true;
+      }
+    });
+    console.log(`[ARRAY OP] filter(${field}${operator}${compareValue}) -> ${filtered.length} of ${arr.length}`);
+    return filtered;
+  }
+  
+  // Slice: slice(start, end) or slice(start)
+  const sliceMatch = op.match(/^slice\s*\(\s*(-?\d+)\s*(?:,\s*(-?\d+))?\s*\)$/i);
+  if (sliceMatch) {
+    const start = parseInt(sliceMatch[1], 10);
+    const end = sliceMatch[2] ? parseInt(sliceMatch[2], 10) : undefined;
+    const sliced = end !== undefined ? arr.slice(start, end) : arr.slice(start);
+    console.log(`[ARRAY OP] slice(${start}${end !== undefined ? ',' + end : ''}) -> ${sliced.length} items`);
+    return sliced;
+  }
+  
+  // First N: first(n) or first
+  const firstMatch = op.match(/^first\s*(?:\(\s*(\d+)\s*\))?$/i);
+  if (firstMatch) {
+    const n = firstMatch[1] ? parseInt(firstMatch[1], 10) : 1;
+    const result = n === 1 ? arr[0] : arr.slice(0, n);
+    console.log(`[ARRAY OP] first(${n})`);
+    return result;
+  }
+  
+  // Last N: last(n) or last
+  const lastMatch = op.match(/^last\s*(?:\(\s*(\d+)\s*\))?$/i);
+  if (lastMatch) {
+    const n = lastMatch[1] ? parseInt(lastMatch[1], 10) : 1;
+    const result = n === 1 ? arr[arr.length - 1] : arr.slice(-n);
+    console.log(`[ARRAY OP] last(${n})`);
+    return result;
+  }
+  
+  // Count/Length
+  if (/^(count|length|size)$/i.test(op)) {
+    console.log(`[ARRAY OP] ${op} -> ${arr.length}`);
+    return arr.length;
+  }
+  
+  // Reverse
+  if (/^reverse$/i.test(op)) {
+    console.log(`[ARRAY OP] reverse -> ${arr.length} items`);
+    return [...arr].reverse();
+  }
+  
+  // Unique (dedupe by JSON stringify)
+  if (/^unique$/i.test(op)) {
+    const seen = new Set();
+    const unique = arr.filter(item => {
+      const key = JSON.stringify(item);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    console.log(`[ARRAY OP] unique -> ${unique.length} of ${arr.length}`);
+    return unique;
+  }
+  
+  // Flatten
+  if (/^flatten$/i.test(op)) {
+    const flattened = arr.flat(Infinity);
+    console.log(`[ARRAY OP] flatten -> ${flattened.length} items`);
+    return flattened;
+  }
+  
+  return arr;
+};
+
+const evaluateAdvancedPath = (data, pathExpression) => {
+  const expr = String(pathExpression || '').trim();
+  if (!expr) return { value: data, resolvedPath: [] };
+  
+  // Tokenize the path expression
+  // Supports: path.to.array.filter(x=y).sort(asc:field).first
+  const tokens = [];
+  let current = '';
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    
+    if (ch === '(') parenDepth++;
+    if (ch === ')') parenDepth--;
+    if (ch === '[') bracketDepth++;
+    if (ch === ']') bracketDepth--;
+    
+    if (ch === '.' && parenDepth === 0 && bracketDepth === 0) {
+      if (current.trim()) tokens.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) tokens.push(current.trim());
+  
+  let value = data;
+  const resolvedPath = [];
+  
+  for (const token of tokens) {
+    if (value === null || value === undefined) break;
+    
+    // Check if token is an array operation
+    if (/^(sort|filter|slice|first|last|count|length|size|reverse|unique|flatten)\s*(\(|$)/i.test(token)) {
+      value = evaluateArrayOperation(value, token);
+      resolvedPath.push(token);
+      continue;
+    }
+    
+    // Check for array index: items[0] or items[-1]
+    const indexMatch = token.match(/^([^\[]+)\[(-?\d+)\]$/);
+    if (indexMatch) {
+      const key = indexMatch[1];
+      const idx = parseInt(indexMatch[2], 10);
+      
+      // First access the key
+      if (key) {
+        if (isPlainObject(value)) {
+          const actualKey = Object.keys(value).find(k => k.toLowerCase() === key.toLowerCase());
+          value = actualKey ? value[actualKey] : undefined;
+          resolvedPath.push(actualKey || key);
+        } else {
+          value = undefined;
+        }
+      }
+      
+      // Then access the index
+      if (Array.isArray(value)) {
+        const actualIdx = idx < 0 ? value.length + idx : idx;
+        value = value[actualIdx];
+        resolvedPath.push(String(actualIdx));
+      }
+      continue;
+    }
+    
+    // Check for array filter: items[field=value]
+    const filterMatch = token.match(/^([^\[]*)\[([^\]]+)\]$/);
+    if (filterMatch && !/^\d+$/.test(filterMatch[2])) {
+      const key = filterMatch[1];
+      const filterExpr = filterMatch[2];
+      
+      // First access the key if present
+      if (key) {
+        if (isPlainObject(value)) {
+          const actualKey = Object.keys(value).find(k => k.toLowerCase() === key.toLowerCase());
+          value = actualKey ? value[actualKey] : undefined;
+          resolvedPath.push(actualKey || key);
+        }
+      }
+      
+      // Apply filter if array
+      if (Array.isArray(value)) {
+        // Check for comparison: field=value, field>value, etc.
+        const compMatch = filterExpr.match(/^([^=<>!]+)(=|!=|>|<|>=|<=)(.+)$/);
+        if (compMatch) {
+          const field = compMatch[1].trim();
+          const op = compMatch[2];
+          let compareVal = compMatch[3].trim();
+          
+          // Parse value
+          if (!isNaN(Number(compareVal))) compareVal = Number(compareVal);
+          if (typeof compareVal === 'string' && /^["'].*["']$/.test(compareVal)) {
+            compareVal = compareVal.slice(1, -1);
+          }
+          
+          value = value.filter(item => {
+            const itemVal = readCaseInsensitivePath(item, field.split('.'));
+            switch (op) {
+              case '=': return itemVal == compareVal;
+              case '!=': return itemVal != compareVal;
+              case '>': return itemVal > compareVal;
+              case '<': return itemVal < compareVal;
+              case '>=': return itemVal >= compareVal;
+              case '<=': return itemVal <= compareVal;
+              default: return true;
+            }
+          });
+          console.log(`[PATH] filter ${key}[${filterExpr}] -> ${value.length} items`);
+          resolvedPath.push(`[${filterExpr}]`);
+        } else if (filterExpr === '*') {
+          // Wildcard - keep all (used for mapping)
+          resolvedPath.push('[*]');
+        }
+      }
+      continue;
+    }
+    
+    // Check for map operation: [*] followed by property
+    if (Array.isArray(value) && resolvedPath[resolvedPath.length - 1] === '[*]') {
+      // Map: extract property from each item
+      value = value.map(item => readCaseInsensitivePath(item, [token])).filter(v => v !== undefined);
+      resolvedPath.push(token);
+      console.log(`[PATH] map [*].${token} -> ${value.length} values`);
+      continue;
+    }
+    
+    // Regular property access
+    if (isPlainObject(value)) {
+      const actualKey = Object.keys(value).find(k => k.toLowerCase() === token.toLowerCase());
+      if (actualKey) {
+        value = value[actualKey];
+        resolvedPath.push(actualKey);
+      } else {
+        // Try flexible path (find key anywhere in descendants)
+        const descendant = findFirstDescendantWithKey(value, token);
+        if (descendant) {
+          value = descendant.value;
+          resolvedPath.push(...descendant.pathArr);
+        } else {
+          value = undefined;
+        }
+      }
+    } else if (Array.isArray(value)) {
+      // If accessing property on array, map it
+      value = value.map(item => readCaseInsensitivePath(item, [token])).filter(v => v !== undefined);
+      resolvedPath.push(token);
+    } else {
+      value = undefined;
+    }
+  }
+  
+  return { value, resolvedPath };
+};
+
 const parsePathExpression = (rawPath) => {
   const trimmed = String(rawPath || '').trim();
   if (!trimmed) return [];
@@ -677,14 +955,18 @@ const splitSourceValueExpression = (valueExpression, sourceNames) => {
 
 const tryObjectCompositionPrompt = (promptText, sources, sourceNames) => {
   const text = String(promptText || '').trim();
-  if (!text.startsWith('{') || !text.endsWith('}')) return null;
+  const isWrappedObject = text.startsWith('{') && text.endsWith('}');
+  const hasMappingSyntax = /(?:^|[,\r\n])\s*["']?[A-Za-z0-9_-]+["']?\s*:\s*@/i.test(text);
+  if (!isWrappedObject && !hasMappingSyntax) return null;
 
-  const body = text.slice(1, -1).trim();
+  const body = isWrappedObject ? text.slice(1, -1).trim() : text;
   if (!body) return null;
 
   const result = {};
   const entries = splitTopLevelComma(body);
   if (entries.length === 0) return null;
+  const baseAssignments = [];
+  const pendingInjections = [];
 
   for (const entry of entries) {
     const pair = splitFirstColon(entry);
@@ -694,20 +976,35 @@ const tryObjectCompositionPrompt = (promptText, sources, sourceNames) => {
     if (!key) return null;
 
     const valueExpression = pair[1].trim();
+
+    if (key.startsWith('@')) {
+      pendingInjections.push({ targetExpression: key, valueExpression });
+      continue;
+    }
+
     const sourceExpression = splitSourceValueExpression(valueExpression, sourceNames);
     if (!sourceExpression) return null;
     const sourceId = resolveSourceReference(sourceExpression.sourceId, sources, sourceNames);
     if (!sourceId || !sources[sourceId]) return null;
 
-    const pathArr = parsePathExpression(sourceExpression.pathExpression);
+    const pathExpr = sourceExpression.pathExpression;
     
-    // Use flexible path resolution to find keys at any depth
+    // Use advanced path evaluation for complex expressions with operations
     let value;
-    if (pathArr.length > 0) {
-      const flexResult = readFlexiblePath(sources[sourceId], pathArr);
-      value = flexResult.value;
-      if (value !== undefined) {
-        console.log(`[COMPOSE] "${key}": resolved path ${pathArr.join('.')} -> ${flexResult.resolvedPath.join('.')}`);
+    if (pathExpr) {
+      // Try advanced evaluation first (supports filter, sort, etc.)
+      const advResult = evaluateAdvancedPath(sources[sourceId], pathExpr);
+      if (advResult.value !== undefined) {
+        value = advResult.value;
+        console.log(`[COMPOSE] "${key}": advanced path ${pathExpr} -> ${advResult.resolvedPath.join('.')}`);
+      } else {
+        // Fallback to flexible path
+        const pathArr = parsePathExpression(pathExpr);
+        const flexResult = readFlexiblePath(sources[sourceId], pathArr);
+        value = flexResult.value;
+        if (value !== undefined) {
+          console.log(`[COMPOSE] "${key}": resolved path ${pathArr.join('.')} -> ${flexResult.resolvedPath.join('.')}`);
+        }
       }
     } else {
       value = sources[sourceId];
@@ -717,7 +1014,94 @@ const tryObjectCompositionPrompt = (promptText, sources, sourceNames) => {
       throw new Error(`Path not found for "${key}": ${sourceExpression.pathExpression}. Check if the path exists in your data.`);
     }
 
-    result[key] = value;
+    result[key] = structuredClone(value);
+    baseAssignments.push({ key, sourceId, pathExpr, data: result[key] });
+  }
+
+  for (const injection of pendingInjections) {
+    const target = splitSourceAndPathExpression(injection.targetExpression);
+    if (!target) return null;
+
+    const targetSourceId = resolveSourceReference(target.sourceId, sources, sourceNames);
+    if (!targetSourceId) return null;
+
+    const valueSourceExpression = splitSourceValueExpression(injection.valueExpression, sourceNames);
+    if (!valueSourceExpression) return null;
+
+    const valueSourceId = resolveSourceReference(valueSourceExpression.sourceId, sources, sourceNames);
+    if (!valueSourceId || !sources[valueSourceId]) return null;
+
+    const injectionPath = parsePathExpression(target.pathExpression);
+    if (injectionPath.length === 0) {
+      throw new Error(`Injection path is required: ${injection.targetExpression}`);
+    }
+
+    const valuePathExpr = valueSourceExpression.pathExpression;
+    let injectionValue = sources[valueSourceId];
+    if (valuePathExpr) {
+      const resolved = evaluateAdvancedPath(sources[valueSourceId], valuePathExpr);
+      injectionValue = resolved.value !== undefined
+        ? resolved.value
+        : readFlexiblePath(sources[valueSourceId], parsePathExpression(valuePathExpr)).value;
+    }
+
+    if (injectionValue === undefined) {
+      throw new Error(`Injection value path not found: ${injection.valueExpression}`);
+    }
+
+    const targets = baseAssignments.filter(a => a.sourceId === targetSourceId && !a.pathExpr);
+    if (targets.length === 0) {
+      throw new Error(`No output key is using ${targetSourceId} as an entire source for injection`);
+    }
+
+    for (const assignment of targets) {
+      setCaseInsensitivePath(assignment.data, injectionPath, structuredClone(injectionValue));
+      console.log(`[COMPOSE] Injected ${valueSourceId} into "${assignment.key}".${injectionPath.join('.')}`);
+    }
+  }
+
+  return result;
+};
+
+const trySourceArrayPrompt = (promptText, sources, sourceNames) => {
+  const text = String(promptText || '').trim();
+  const listMatch = text.match(/\[\s*@?source\s*[_-]?\s*\d+[\s\S]*?\]/i);
+  const listText = listMatch?.[0] || text;
+  if (!listText.startsWith('[') || !listText.endsWith(']')) return null;
+
+  const body = listText.slice(1, -1).trim();
+  if (!body) return [];
+
+  const result = [];
+  const entries = splitTopLevelComma(body);
+  if (entries.length === 0) return null;
+
+  for (const entry of entries) {
+    const sourceExpression = splitSourceValueExpression(entry.trim(), sourceNames);
+    if (!sourceExpression) return null;
+
+    const sourceId = resolveSourceReference(sourceExpression.sourceId, sources, sourceNames);
+    if (!sourceId || !sources[sourceId]) {
+      throw new Error(`Source not found: ${entry.trim()}`);
+    }
+
+    const pathExpression = sourceExpression.pathExpression;
+    if (pathExpression) {
+      const resolved = evaluateAdvancedPath(sources[sourceId], pathExpression);
+      if (resolved.value !== undefined) {
+        result.push(resolved.value);
+        continue;
+      }
+
+      const flexResult = readFlexiblePath(sources[sourceId], parsePathExpression(pathExpression));
+      if (flexResult.value === undefined) {
+        throw new Error(`Path not found: ${entry.trim()}`);
+      }
+      result.push(flexResult.value);
+      continue;
+    }
+
+    result.push(sources[sourceId]);
   }
 
   return result;
@@ -737,14 +1121,6 @@ const tryNaturalComposePrompt = (promptText, sources, sourceNames) => {
   // Check for any @ reference (could be @Source N or @filename.txt)
   if (!text || !/@/i.test(text)) return null;
 
-  // Detect if user wants array output: "array of objects", "list of objects", "[]", etc.
-  const wantsArray = /\b(array|list)\s+(of\s+)?(objects?|items?)\b/i.test(text) || 
-                     /^\s*\[/.test(text) || 
-                     /create\s+\[/i.test(text);
-  
-  const items = [];  // For array format
-  const result = {}; // For object format
-  
   // Helper to resolve source reference (file name or Source N) to SOURCE_ID
   const resolveRef = (ref) => {
     const cleaned = String(ref || '').trim().replace(/^@/, '');
@@ -762,6 +1138,49 @@ const tryNaturalComposePrompt = (promptText, sources, sourceNames) => {
     }
     return null;
   };
+
+  // ─────────────────────────────────────────
+  // EARLY CHECK: Simple array of sources [@Source 1, @Source 2, ...]
+  // ─────────────────────────────────────────
+  if (/^\s*\[/.test(text) && /\]\s*$/.test(text)) {
+    // Strip outer brackets and split by comma
+    const innerText = text.replace(/^\s*\[\s*/, '').replace(/\s*\]\s*$/, '');
+    const parts = innerText.split(',').map(p => p.trim());
+    const simpleSourcePattern = /^@(source\s*\d+|[^\s]+)$/i;
+    const simpleItems = [];
+    let allMatch = true;
+    
+    for (const part of parts) {
+      const match = part.match(simpleSourcePattern);
+      if (match) {
+        const sourceRef = match[1].trim();
+        const sourceId = resolveRef(sourceRef);
+        if (sourceId && sources[sourceId]) {
+          simpleItems.push(structuredClone(sources[sourceId]));
+          console.log(`[COMPOSE] Array item: ${sourceId} (entire)`);
+        } else {
+          allMatch = false;
+          break;
+        }
+      } else {
+        allMatch = false;
+        break;
+      }
+    }
+    
+    if (allMatch && simpleItems.length > 0) {
+      console.log(`[COMPOSE] Simple source array: ${simpleItems.length} items`);
+      return simpleItems;
+    }
+  }
+
+  // Detect if user wants array output: "array of objects", "list of objects", "[]", etc.
+  const wantsArray = /\b(array|list)\s+(of\s+)?(objects?|items?)\b/i.test(text) || 
+                     /^\s*\[/.test(text) || 
+                     /create\s+\[/i.test(text);
+  
+  const items = [];  // For array format
+  const result = {}; // For object format
 
   // Split text by commas (respecting brackets)
   const segments = [];
@@ -787,25 +1206,34 @@ const tryNaturalComposePrompt = (promptText, sources, sourceNames) => {
   const activeSourceIds = new Set();  // Track which sources are used as bases
   
   for (const segment of segments) {
-    // Match: "key" : @source (optional path)
-    const quotedKeyPattern = /^["']([^"']+)["']\s*:\s*@([^\s,\[]+)(?:\s+([a-zA-Z0-9_.]+))?$/i;
+    // Match: "key" : @source (optional complex path with operations)
+    // Supports: @Source 1 user.profile.name.sort(asc:date).filter(active=true)
+    const quotedKeyPattern = /^["']([^"']+)["']\s*:\s*@([^\s,\[]+)(?:\s+(.+))?$/i;
     const quotedMatch = segment.match(quotedKeyPattern);
     if (quotedMatch) {
       const key = quotedMatch[1].trim();
       const sourceRef = quotedMatch[2].trim();
-      const pathStr = quotedMatch[3] || '';
+      const pathStr = (quotedMatch[3] || '').trim();
       const sourceId = resolveRef(sourceRef);
       
       if (sourceId && sources[sourceId]) {
-        const pathArr = parsePathExpression(pathStr);
         let value;
-        if (pathArr.length > 0) {
-          const resolved = readFlexiblePath(sources[sourceId], pathArr);
+        if (pathStr) {
+          // Use advanced path evaluation for complex expressions
+          const resolved = evaluateAdvancedPath(sources[sourceId], pathStr);
           if (resolved.value === undefined) {
-            throw new Error(`Path not found for "${key}": ${sourceId} ${pathStr}`);
+            // Fallback to flexible path
+            const pathArr = parsePathExpression(pathStr);
+            const flexResult = readFlexiblePath(sources[sourceId], pathArr);
+            if (flexResult.value === undefined) {
+              throw new Error(`Path not found for "${key}": ${sourceId} ${pathStr}`);
+            }
+            value = structuredClone(flexResult.value);
+            console.log(`[COMPOSE] Base: "${key}" -> ${sourceId}.${flexResult.resolvedPath.join('.')}`);
+          } else {
+            value = structuredClone(resolved.value);
+            console.log(`[COMPOSE] Base: "${key}" -> ${sourceId}.${resolved.resolvedPath.join('.')}`);
           }
-          value = structuredClone(resolved.value);
-          console.log(`[COMPOSE] Base: "${key}" -> ${sourceId}.${resolved.resolvedPath.join('.')}`);
         } else {
           value = structuredClone(sources[sourceId]);
           console.log(`[COMPOSE] Base: "${key}" -> ${sourceId} (entire)`);
@@ -817,41 +1245,62 @@ const tryNaturalComposePrompt = (promptText, sources, sourceNames) => {
   }
 
   // ─────────────────────────────────────────
-  // PHASE 2: Process injections (@source[path]: @value_source)
+  // PHASE 2: Process injections (@source[path]: @value_source OR @source path.to[idx]: @value)
   // Only inject into sources that are active bases
   // ─────────────────────────────────────────
   for (const segment of segments) {
-    // Match: @source[path] : @other_source
-    const injectionPattern = /@([^\s\[]+)\s*\[([^\]]+)\]\s*:\s*@([^\s,]+)/i;
-    const injectionMatch = segment.match(injectionPattern);
-    if (injectionMatch) {
-      const targetSourceRef = injectionMatch[1].trim();
-      const injectPath = injectionMatch[2].trim();
-      const valueSourceRef = injectionMatch[3].trim();
-      
-      const targetSourceId = resolveRef(targetSourceRef);
-      const valueSourceId = resolveRef(valueSourceRef);
-      
-      // Only process if target source is an active base
-      if (!activeSourceIds.has(targetSourceId)) {
-        console.log(`[COMPOSE] Skipped injection: @${targetSourceRef}[${injectPath}] (source not used as base)`);
-        continue;
+    // Pattern 1: @source[path] : @other_source (bracket immediately after source)
+    const injectionPattern1 = /@([^\s\[]+)\s*\[([^\]]+)\]\s*:\s*@([^\s,]+)/i;
+    // Pattern 2: @source path.to[idx] : @other_source (space-separated path with brackets)
+    const injectionPattern2 = /@([^\s]+)\s+([^\s:]+(?:\[[^\]]+\])?[^\s:]*)\s*:\s*@([^\s,]+)/i;
+    
+    let targetSourceRef, injectPath, valueSourceRef;
+    
+    // Try pattern 1 first (bracket key)
+    const injectionMatch1 = segment.match(injectionPattern1);
+    if (injectionMatch1) {
+      targetSourceRef = injectionMatch1[1].trim();
+      injectPath = injectionMatch1[2].trim();
+      valueSourceRef = injectionMatch1[3].trim();
+    } else {
+      // Try pattern 2 (space-separated path)
+      const injectionMatch2 = segment.match(injectionPattern2);
+      if (injectionMatch2) {
+        // Check if this looks like an injection (has brackets or dots in path)
+        const potentialPath = injectionMatch2[2].trim();
+        // Only treat as injection if the path contains [] or looks like a path injection
+        if (potentialPath.includes('[') || (potentialPath.includes('.') && !potentialPath.startsWith('"'))) {
+          targetSourceRef = injectionMatch2[1].trim();
+          injectPath = potentialPath;
+          valueSourceRef = injectionMatch2[3].trim();
+        }
       }
-      
-      if (!valueSourceId || !sources[valueSourceId]) {
-        console.log(`[COMPOSE] Skipped injection: value source @${valueSourceRef} not found`);
-        continue;
-      }
-      
-      // Find which base assignment uses this source and inject into it
-      for (const [outputKey, assignment] of Object.entries(baseAssignments)) {
-        if (assignment.sourceId === targetSourceId) {
-          // Inject the value into the base data at the specified path
-          const pathArr = parsePathExpression(injectPath);
-          if (pathArr.length > 0) {
-            setCaseInsensitivePath(assignment.data, pathArr, structuredClone(sources[valueSourceId]));
-            console.log(`[COMPOSE] Injected: @${valueSourceRef} -> "${outputKey}".${pathArr.join('.')}`);
-          }
+    }
+    
+    if (!targetSourceRef || !injectPath || !valueSourceRef) continue;
+    
+    const targetSourceId = resolveRef(targetSourceRef);
+    const valueSourceId = resolveRef(valueSourceRef);
+    
+    // Only process if target source is an active base
+    if (!activeSourceIds.has(targetSourceId)) {
+      console.log(`[COMPOSE] Skipped injection: @${targetSourceRef} ${injectPath} (source not used as base)`);
+      continue;
+    }
+    
+    if (!valueSourceId || !sources[valueSourceId]) {
+      console.log(`[COMPOSE] Skipped injection: value source @${valueSourceRef} not found`);
+      continue;
+    }
+    
+    // Find which base assignment uses this source and inject into it
+    for (const [outputKey, assignment] of Object.entries(baseAssignments)) {
+      if (assignment.sourceId === targetSourceId) {
+        // Inject the value into the base data at the specified path
+        const pathArr = parsePathExpression(injectPath);
+        if (pathArr.length > 0) {
+          setCaseInsensitivePath(assignment.data, pathArr, structuredClone(sources[valueSourceId]));
+          console.log(`[COMPOSE] Injected: @${valueSourceRef} -> "${outputKey}".${pathArr.join('.')}`);
         }
       }
     }
@@ -887,25 +1336,33 @@ const tryNaturalComposePrompt = (promptText, sources, sourceNames) => {
     // Skip injection patterns (already processed)
     if (/@[^\s\[]+\s*\[/.test(segment)) continue;
     
-    // Try: "key" : @source (with optional path after source)
-    const quotedKeyPattern = /["']([^"']+)["']\s*:\s*@([^\s,\[]+)(?:\s+([a-zA-Z0-9_.]+))?/i;
+    // Try: "key" : @source (with optional complex path expression)
+    const quotedKeyPattern = /["']([^"']+)["']\s*:\s*@([^\s,\[]+)(?:\s+(.+))?/i;
     const quotedMatch = segment.match(quotedKeyPattern);
     if (quotedMatch) {
       const key = quotedMatch[1].trim();
       const sourceRef = quotedMatch[2].trim();
-      const pathStr = quotedMatch[3] || '';
+      const pathStr = (quotedMatch[3] || '').trim();
       const sourceId = resolveRef(sourceRef);
       
       if (sourceId && sources[sourceId]) {
-        const pathArr = parsePathExpression(pathStr);
         let value;
-        if (pathArr.length > 0) {
-          const resolved = readFlexiblePath(sources[sourceId], pathArr);
+        if (pathStr) {
+          // Use advanced path evaluation for complex expressions
+          const resolved = evaluateAdvancedPath(sources[sourceId], pathStr);
           if (resolved.value === undefined) {
-            throw new Error(`Path not found for "${key}": ${sourceId} ${pathStr}`);
+            // Fallback to flexible path
+            const pathArr = parsePathExpression(pathStr);
+            const flexResult = readFlexiblePath(sources[sourceId], pathArr);
+            if (flexResult.value === undefined) {
+              throw new Error(`Path not found for "${key}": ${sourceId} ${pathStr}`);
+            }
+            value = flexResult.value;
+            console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId}.${flexResult.resolvedPath.join('.')}`);
+          } else {
+            value = resolved.value;
+            console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId}.${resolved.resolvedPath.join('.')}`);
           }
-          value = resolved.value;
-          console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId}.${resolved.resolvedPath.join('.')}`);
         } else {
           value = sources[sourceId];
           console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId} (entire)`);
@@ -919,23 +1376,30 @@ const tryNaturalComposePrompt = (promptText, sources, sourceNames) => {
       }
     }
     
-    // Try: [key] : @source
-    const simpleBracketPattern = /\[([^\]]+)\]\s*:\s*@([^\s,]+)(?:\s+([a-zA-Z0-9_.]+))?/i;
+    // Try: [key] : @source (with optional complex path)
+    const simpleBracketPattern = /\[([^\]]+)\]\s*:\s*@([^\s,]+)(?:\s+(.+))?/i;
     const simpleBracketMatch = segment.match(simpleBracketPattern);
     if (simpleBracketMatch) {
       const key = simpleBracketMatch[1].trim();
       const sourceRef = simpleBracketMatch[2].trim();
-      const pathStr = simpleBracketMatch[3] || '';
+      const pathStr = (simpleBracketMatch[3] || '').trim();
       const sourceId = resolveRef(sourceRef);
       
       if (sourceId && sources[sourceId]) {
-        const pathArr = parsePathExpression(pathStr);
         let value;
-        if (pathArr.length > 0) {
-          const resolved = readFlexiblePath(sources[sourceId], pathArr);
-          if (resolved.value === undefined) continue;
-          value = resolved.value;
-          console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId}.${resolved.resolvedPath.join('.')} (bracket key)`);
+        if (pathStr) {
+          // Use advanced path evaluation
+          const resolved = evaluateAdvancedPath(sources[sourceId], pathStr);
+          if (resolved.value === undefined) {
+            const pathArr = parsePathExpression(pathStr);
+            const flexResult = readFlexiblePath(sources[sourceId], pathArr);
+            if (flexResult.value === undefined) continue;
+            value = flexResult.value;
+            console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId}.${flexResult.resolvedPath.join('.')} (bracket key)`);
+          } else {
+            value = resolved.value;
+            console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId}.${resolved.resolvedPath.join('.')} (bracket key)`);
+          }
         } else {
           value = sources[sourceId];
           console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId} (entire, bracket key)`);
@@ -950,6 +1414,33 @@ const tryNaturalComposePrompt = (promptText, sources, sourceNames) => {
     }
   }
   
+  // ─────────────────────────────────────────
+  // SIMPLE ARRAY OF SOURCES: [@Source 1, @Source 2, ...]
+  // No keys, just sources listed in array format
+  // ─────────────────────────────────────────
+  if (wantsArray && items.length === 0) {
+    console.log(`[DEBUG] Checking simple array pattern. Segments:`, segments);
+    // Pattern to match @Source N with optional brackets and spaces
+    const simpleSourcePattern = /^\[?\s*@(source\s*\d+|[^\s,\]]+)\s*\]?$/i;
+    for (const segment of segments) {
+      const match = segment.match(simpleSourcePattern);
+      console.log(`[DEBUG] Segment "${segment}" match:`, match);
+      if (match) {
+        const sourceRef = match[1].trim();
+        const sourceId = resolveRef(sourceRef);
+        console.log(`[DEBUG] sourceRef="${sourceRef}" -> sourceId="${sourceId}"`);
+        if (sourceId && sources[sourceId]) {
+          items.push(structuredClone(sources[sourceId]));
+          console.log(`[COMPOSE] Array item: ${sourceId} (entire)`);
+        }
+      }
+    }
+    if (items.length > 0) {
+      console.log(`[COMPOSE] Simple source array: ${items.length} items`);
+      return items;
+    }
+  }
+
   if (wantsArray && items.length > 0) {
     console.log(`[COMPOSE] Natural array composition: ${items.length} items`);
     return items;
@@ -2370,6 +2861,20 @@ app.post('/api/convert', upload.array('files'), async (req, res) => {
   }
 
   try {
+    const sourceArray = trySourceArrayPrompt(prompt, sources, sourceNames);
+    if (sourceArray) {
+      console.log('[COMPOSE] Direct source array from prompt');
+      return res.json(sourceArray);
+    }
+  } catch (sourceArrayErr) {
+    console.error('[SOURCE ARRAY ERROR]', sourceArrayErr.message);
+    return res.status(400).json({
+      error: 'Source array composition failed',
+      details: sourceArrayErr.message
+    });
+  }
+
+  try {
     // ─────────────────────────────────────────
     // BARE SOURCE REQUEST — only "@Source 1" or "source 2" alone
     // These are so simple they don't need LLM
@@ -2382,18 +2887,27 @@ app.post('/api/convert', upload.array('files'), async (req, res) => {
     
     // ─────────────────────────────────────────
     try {
+      const sourceArray = trySourceArrayPrompt(prompt, sources, sourceNames);
+      if (sourceArray) {
+        console.log('[COMPOSE] Direct source array from prompt');
+        return res.json(sourceArray);
+      }
+
       const composedObject = tryObjectCompositionPrompt(prompt, sources, sourceNames);
       if (composedObject) {
         console.log('[COMPOSE] Direct object composition from prompt');
         return res.json(composedObject);
       }
     } catch (composeErr) {
-      console.error('[COMPOSE ERROR]', composeErr.message);
-      return res.status(400).json({ 
-        error: 'Object composition failed', 
-        details: composeErr.message,
-        hint: 'Check that source files and paths exist'
-      });
+      if (/(?:^|[,\r\n])\s*["']?[A-Za-z0-9_-]+["']?\s*:\s*@/i.test(prompt)) {
+        console.error('[COMPOSE ERROR]', composeErr.message);
+        return res.status(400).json({
+          error: 'Object composition failed',
+          details: composeErr.message,
+          hint: 'Check that the referenced source and path exist.'
+        });
+      }
+      console.log('[COMPOSE] Direct composition failed, falling through:', composeErr.message);
     }
 
     try {
@@ -2403,12 +2917,8 @@ app.post('/api/convert', upload.array('files'), async (req, res) => {
         return res.json(naturalComposedObject);
       }
     } catch (naturalErr) {
-      console.error('[NATURAL COMPOSE ERROR]', naturalErr.message);
-      return res.status(400).json({ 
-        error: 'Natural composition failed', 
-        details: naturalErr.message,
-        hint: 'Check that source references and paths are valid'
-      });
+      // Fall through to LLM instead of returning error
+      console.log('[NATURAL COMPOSE] Failed, falling through:', naturalErr.message);
     }
 
     // LLM-POWERED PROMPT UNDERSTANDING
@@ -2670,13 +3180,16 @@ ${compressedSources}`;
           const allResults = executeAllOps(dynamicQueries, sources);
           if (allResults.length === 1) {
             const r = allResults[0];
-            return res.json({
-              mode: `dynamic_${r.query.operation}`,
-              query: r.query,
-              results: r.results
-            });
+            if (r.results.length === 1) {
+              const { source_id, ...payload } = r.results[0];
+              return res.json(payload);
+            }
+            return res.json(r.results.map(({ source_id, ...payload }) => payload));
           }
-          return res.json({ mode: 'multi_operation', operations: allResults });
+          return res.json(allResults.map(r => ({
+            operation: r.query.operation,
+            results: r.results.map(({ source_id, ...payload }) => payload)
+          })));
         }
       }
 
