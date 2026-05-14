@@ -1,17 +1,17 @@
 {
   "mode": "pipeline",
-  "root_source_id": "SOURCE_5",
+  "root_source_id": "SOURCE_1",
   "stages": [
     {
       "stage": 1,
       "type": "merge",
-      "description": "Add depth_7 under userProfile",
+      "description": "Embed Source 2 into Source 1 as the last object.",
       "steps": [
         {
           "action": "embed",
-          "parent_source_id": "SOURCE_5",
-          "child_source_id": "SOURCE_1",
-          "anchor_path": ["userProfile", "depth_1", "depth_2", "depth_3", "depth_4", "depth_5", "depth_6", "depth_7"],
+          "parent_source_id": "SOURCE_1",
+          "child_source_id": "SOURCE_2",
+          "anchor_path": ["groupedTasksByStatus", "In Progress", "0", "gamingPlatform"],
           "embed_mode": "merge_keys"
         }
       ]
@@ -19,51 +19,15 @@
     {
       "stage": 2,
       "type": "merge",
-      "description": "Add level_5 under mohandemo",
+      "description": "Add last object of Source 3 as key 'haju' in Source 2.",
       "steps": [
         {
           "action": "embed",
-          "parent_source_id": "SOURCE_1",
-          "child_source_id": "SOURCE_4",
-          "anchor_path": ["project", "level_1", "level_2", "level_3", "level_4", "level_5"],
-          "embed_mode": "merge_keys"
-        }
-      ]
-    },
-    {
-      "stage": 3,
-      "type": "merge",
-      "description": "Add node_9 under doc3",
-      "steps": [
-        {
-          "action": "embed",
-          "parent_source_id": "SOURCE_4",
+          "parent_source_id": "SOURCE_2",
           "child_source_id": "SOURCE_3",
-          "anchor_path": ["ecommerce", "node_1", "node_2", "node_3", "node_4", "node_5", "node_6", "node_7", "node_8", "node_9"],
+          "anchor_path": ["gamingPlatform", "regions", "0", "servers", "0", "games", "0", "rooms", "0", "haju"],
           "embed_mode": "merge_keys"
         }
-      ]
-    },
-    {
-      "stage": 4,
-      "type": "merge",
-      "description": "Add stage_8 under doc4",
-      "steps": [
-        {
-          "action": "embed",
-          "parent_source_id": "SOURCE_3",
-          "child_source_id": "SOURCE_2",
-          "anchor_path": ["gamingServer", "stage_1", "stage_2", "stage_3", "stage_4", "stage_5", "stage_6", "stage_7", "stage_8"],
-          "embed_mode": "merge_keys"
-        }
-      ]
-    },
-    {
-      "stage": 5,
-      "type": "transform",
-      "description": "Create grouped analytics object",
-      "operations": [
-        { "op": "group", "collection": "analytics", "by": "enabled" }
       ]
     }
   ]
