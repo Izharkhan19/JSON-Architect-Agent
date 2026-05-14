@@ -54,6 +54,14 @@ const AppLayout = () => {
   const [mentionFilter, setMentionFilter] = React.useState('');
   const [leftWidth, setLeftWidth] = React.useState(50); // percentage
   const [isResizing, setIsResizing] = React.useState(false);
+  const [isDesktop, setIsDesktop] = React.useState(window.innerWidth >= 1024);
+
+  // Track window resize for responsive layout
+  useEffect(() => {
+    const handleResize = () => setIsDesktop(window.innerWidth >= 1024);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Modal state
   const [showViewModal, setShowViewModal] = React.useState(false);
@@ -322,7 +330,7 @@ const AppLayout = () => {
         {/* Left Side: Input & Prompt */}
         <section
           className="flex flex-col border-b lg:border-b-0 lg:border-r border-[var(--border-subtle)] bg-[var(--bg-secondary)] relative min-h-[40vh] lg:min-h-0"
-          style={{ width: window.innerWidth >= 1024 ? `${leftWidth}%` : '100%' }}
+          style={{ width: isDesktop ? `${leftWidth}%` : '100%' }}
         >
           <div className="panel-header">
             <div className="flex items-center gap-2">
@@ -656,7 +664,7 @@ const AppLayout = () => {
         {/* Right Side: Output */}
         <section
           className="flex flex-col bg-[var(--bg-primary)] overflow-hidden"
-          style={{ width: window.innerWidth >= 1024 ? `${100 - leftWidth}%` : '100%', flex: window.innerWidth >= 1024 ? 'none' : '1' }}
+          style={{ width: isDesktop ? `${100 - leftWidth}%` : '100%', flex: isDesktop ? 'none' : '1' }}
         >
           {/* <div className="panel-header">
             <div className="flex items-center gap-3">

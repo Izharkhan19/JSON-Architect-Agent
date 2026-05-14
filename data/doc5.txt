@@ -1,0 +1,52 @@
+{
+  "blockchainNetwork": {
+    "chain_1": {
+      "network": "Polygon",
+      "chain_2": {
+        "rpc": {
+          "url": "https://rpc.polygon.io"
+        },
+        "chain_3": {
+          "contracts": {
+            "erc20": true
+          },
+          "chain_4": {
+            "wallets": {
+              "metamask": true
+            },
+            "chain_5": {
+              "tokens": {
+                "count": 120
+              },
+              "chain_6": {
+                "validators": {
+                  "active": 100
+                },
+                "chain_7": {
+                  "staking": {
+                    "enabled": true
+                  },
+                  "chain_8": {
+                    "bridges": {
+                      "ethereum": true
+                    },
+                    "chain_9": {
+                      "security": {
+                        "audit": "passed"
+                      },
+                      "chain_10": {
+                        "governance": {
+                          "dao": "enabled"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,79 +1,49 @@
 SYSTEM:
-# SYSTEM INSTRUCTIONS: JSON MERGE PLANNER (PLAN-ONLY MODE)
+# JSON TRANSFORMATION PLANNER
 
-## ROLE
-You are a "merge planner". You DO NOT output the final merged JSON.
-You ONLY output a machine-readable **transformation plan** that Node.js will execute to merge deeply nested JSON sources (N-level nesting supported).
+You output a machine-readable transformation plan as JSON. Node.js executes the plan — you do NOT output the final merged JSON.
 
-## INPUT FORMAT
-- The user provides a free-form instruction prompt (often Gujarati/Hinglish) describing which source is the root and where to embed other sources.
-- Data sources are provided as blocks like:
-  `### DATA SOURCE: Source 1 (ID: SOURCE_1)`
-  followed by JSON.
+## INPUT
+- A standardized English instruction describing how to merge/embed JSON sources.
+- Data sources labeled SOURCE_1, SOURCE_2, etc. with their JSON structure (values may be truncated but all keys are preserved).
 
-## SOURCE RULES
-- A source is referenced by **ID** (`SOURCE_1`) or by a human-readable name/filename (`@Source 1`, `@doc2.txt`, `@mohandemo.txt`).
-- Treat each source JSON as immutable input for planning (Node.js will do the mutation).
-- Use ONLY the data provided. No hallucination.
+## OUTPUT
+Return ONLY valid JSON. No markdown, no explanations.
 
-## OUTPUT (CRITICAL)
-Return ONLY valid JSON (no markdown, no extra text). The output must be a JSON object with the following structure:
-- `plan_version`: Always 1.
-- `root_source_id`: A string like "SOURCE_2", indicating the root source.
-- `steps`: An array of step objects, each with:
-  - `step`: A number indicating the order.
-  - `action`: Always "embed".
-  - `parent_source_id`: The source ID where to embed.
-  - `anchor_path`: An array of strings representing the path to the container object in the parent.
-  - `child_source_id`: The source ID to embed.
-  - `embed_mode`: Always "merge_keys".
-- `verification`: An object with `single_root_required`: true.
-
-If the user prompt is for extracting data from a specific key/path in a source (e.g., phrases like "data joiye che", "get data from", "extract from"), return a JSON object with:
-- `mode`: "extract"
-- `source_id`: The source ID (e.g., "SOURCE_1")
-- `path`: An array of strings representing the path to the key.
-- `data`: The JSON value at that path (object, array, or primitive).
-
-### Meaning of fields
-- `root_source_id`: the ONLY source that must remain as the final single root object.
-- `steps`: execute in order.
-- `anchor_path`: an exact path INSIDE `parent_source_id` from the parent's top-level key to the container object where the child will be embedded.
-  - Path segments are strings (object keys). Do NOT use dot-strings; use an array.
-  - The final path location MUST point to an object (container).
-- `embed_mode`:
-  - `merge_keys` means: take the child source's top-level keys and merge them as properties into the container object.
-  - Do NOT wrap child data under a new key like "Source 1". Use the child's own top-level keys.
-
-## LANGUAGE / INTENT MAPPING
-- "root object che" / "main che" => choose `root_source_id`.
-- "X ni under Y add karo" / "niche add" => embed child source Y into the container located at key/path X within the parent source.
-- "Final output ma only one root object" => `single_root_required=true`.
-
-## IMPORTANT (VERY COMMON FAILURE)
-This planner is ONLY for merge/embedding prompts.
-If the user prompt is NOT a merge instruction (e.g. it says "Search employee by name" or "filter" without telling root + where to embed other sources),
-you MUST return an `error` object explaining that a merge plan requires:
-1) which `SOURCE_X` is the root, and
-2) at least one explicit embed instruction with an anchor key/path that exists in the parent JSON.
-
-## PLANNING REQUIREMENTS
-- MUST compute **exact `anchor_path`** by inspecting the parent JSON.
-- MUST preserve the exact order described by the user prompt.
-- MUST ensure every mentioned source is used exactly once as a child OR as the root.
-- If an anchor key exists multiple times, choose the correct one by matching the user's described chain (and still output the full unambiguous `anchor_path`).
- - IMPORTANT: If the user prompt contains extra requests like grouping, indexing, sorting, metadata, etc., you MUST IGNORE those and still output ONLY the embed plan. Node.js will handle optional post-merge transforms separately.
-
-## ERROR HANDLING
-If you cannot build a reliable plan, return:
+### For merge/embed:
 {
   "plan_version": 1,
-  "error": {
-    "message": "Explain why planning failed",
-    "missing": ["SOURCE_X"],
-    "ambiguous_anchor_keys": ["level_8"]
-  }
+  "root_source_id": "SOURCE_X",
+  "steps": [
+    {
+      "step": 1,
+      "action": "embed",
+      "parent_source_id": "SOURCE_X",
+      "anchor_path": ["key1", "nested_key"],
+      "child_source_id": "SOURCE_Y",
+      "embed_mode": "merge_keys"
+    }
+  ],
+  "verification": { "single_root_required": true }
 }
+
+### For extract:
+{ "mode": "extract", "source_id": "SOURCE_X", "path": ["key1", "key2"] }
+
+## FIELD RULES
+- root_source_id: The source that becomes the final output root.
+- anchor_path: Array of strings — exact key path in the parent source to the container object where child gets merged. Compute by inspecting the actual JSON keys.
+- embed_mode: Always "merge_keys" — child's top-level keys merge as sibling properties into the anchor container. Do NOT wrap under a new key.
+- Each source appears exactly once (as root or as a child in one step).
+
+## REQUIREMENTS
+- Compute exact anchor_path by inspecting the provided JSON structure keys.
+- Preserve merge order from the user prompt.
+- Ignore grouping, sorting, indexing, or metadata requests — only plan embeds.
+
+## ON ERROR
+If the prompt lacks a clear root source or embed target:
+{ "plan_version": 1, "error": { "message": "Describe what is missing" } }
 
 
 USER:
@@ -81,274 +51,118 @@ append @mohandemo.txt to depth_7 in @doc2.txt
 append @doc3.txt to level_5 in @mohandemo.txt
 append @doc4.txt to node_9 in @doc3.txt
 append @doc5.txt to stage_8 in @doc4.txt
+append @Source1 to report in @Source1
+append @Source2 to engineering.products in @Source2
 
 SOURCES:
-### DATA SOURCE: doc2.txt (ID: SOURCE_1)
-{
-  "userProfile": {
-    "depth_1": {
-      "username": "chintan_dev",
-      "depth_2": {
-        "personal": {
-          "age": 25
-        },
-        "depth_3": {
-          "skills": [
-            "React",
-            "Next.js"
-          ],
-          "depth_4": {
-            "experience": {
-              "years": 3
-            },
-            "depth_5": {
-              "preferences": {
-                "theme": "dark"
-              },
-              "depth_6": {
-                "devices": {
-                  "primary": "MacBook"
-                },
-                "depth_7": {
-                  "subscriptions": {
-                    "chatgpt": true
-                  },
-                  "depth_8": {
-                    "socials": {
-                      "linkedin": "active"
-                    },
-                    "depth_9": {
-                      "achievements": {
-                        "hackathons": 5
-                      },
-                      "depth_10": {
-                        "futureGoals": {
-                          "role": "SDE2",
-                          "location": "Dubai"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+### DATA SOURCE: Source 1 (ID: SOURCE_1)
+[
+  {
+    "password": "<str>",
+    "timezone": "<str>",
+    "username": "<str>",
+    "book_after": "<str>",
+    "book_before": "<str>",
+    "property_code": "<str>",
+    "reservation_filters": "<str>"
   }
-}
+]
 
-### DATA SOURCE: doc3.txt (ID: SOURCE_2)
+### DATA SOURCE: Source 2 (ID: SOURCE_2)
 {
-  "ecommerce": {
-    "node_1": {
-      "store": "TechWorld",
-      "node_2": {
-        "categories": [
-          "laptop",
-          "mobile"
-        ],
-        "node_3": {
-          "inventory": {
-            "count": 500
-          },
-          "node_4": {
-            "warehouse": {
-              "city": "Ahmedabad"
-            },
-            "node_5": {
-              "shipping": {
-                "partner": "Delhivery"
-              },
-              "node_6": {
-                "payments": {
-                  "upi": true
-                },
-                "node_7": {
-                  "offers": {
-                    "festival": "Diwali"
-                  },
-                  "node_8": {
-                    "analytics": {
-                      "enabled": true
-                    },
-                    "node_9": {
-                      "fraudDetection": {
-                        "status": "running"
-                      },
-                      "node_10": {
-                        "backup": {
-                          "frequency": "daily"
+  "finalAnalytics": {
+    "company": {
+      "companyId": "<str>",
+      "companyName": "<str>",
+      "engineering": {
+        "projects": {
+          "project_alpha": {
+            "ecommerceInventory": {
+              "inventoryId": "<str>",
+              "products": [
+                {
+                  "productId": "<str>",
+                  "name": "<str>",
+                  "completedDeliveries": 0,
+                  "supplier": {
+                    "supplierId": "<str>",
+                    "tracking": {
+                      "liveStatus": "<str>",
+                      "cloudMonitoring": {
+                        "server": "<str>",
+                        "aiTraining": {
+                          "model": "<str>",
+                          "metrics": {
+                            "accuracy": 0,
+                            "loss": 0
+                          }
                         }
                       }
                     }
                   }
                 }
-              }
+              ]
             }
           }
         }
+      },
+      "hrDepartment": {
+        "employees": [
+          {
+            "employeeId": "<str>",
+            "name": "<str>",
+            "mappedStudent": {
+              "studentId": "<str>",
+              "course": "<str>",
+              "semester": 0,
+              "marks": 0
+            }
+          }
+        ]
       }
-    }
-  }
-}
-
-### DATA SOURCE: doc4.txt (ID: SOURCE_3)
-{
-  "gamingServer": {
-    "stage_1": {
-      "game": "CyberArena",
-      "stage_2": {
-        "playersOnline": 1200,
-        "stage_3": {
-          "maps": [
-            "desert",
-            "snow"
-          ],
-          "stage_4": {
-            "ranking": {
-              "mode": "competitive"
-            },
-            "stage_5": {
-              "antiCheat": {
-                "enabled": true
-              },
-              "stage_6": {
-                "voiceChat": {
-                  "provider": "discord"
-                },
-                "stage_7": {
-                  "events": {
-                    "weekendCup": true
-                  },
-                  "stage_8": {
-                    "mods": {
-                      "supported": true
-                    },
-                    "stage_9": {
-                      "streaming": {
-                        "twitchIntegration": true
-                      },
-                      "stage_10": {
-                        "serverScaling": {
-                          "autoScale": true
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
+    },
+    "bankingFraudAnalytics": {
+      "verifiedTransactions": [
+        {
+          "transactionId": "<str>",
+          "amount": 0,
+          "status": "<str>",
+          "fraudDetection": {
+            "riskScore": 0,
+            "aiDecision": "<str>"
           }
         }
+      ]
+    },
+    "monthlyAnalytics": {
+      "march_2026": {
+        "deliveries": 0,
+        "transactions": 0,
+        "verifiedPayments": 0,
+        "averageAccuracy": 0
       }
-    }
-  }
-}
-
-### DATA SOURCE: doc5.txt (ID: SOURCE_4)
-{
-  "blockchainNetwork": {
-    "chain_1": {
-      "network": "Polygon",
-      "chain_2": {
-        "rpc": {
-          "url": "https://rpc.polygon.io"
-        },
-        "chain_3": {
-          "contracts": {
-            "erc20": true
-          },
-          "chain_4": {
-            "wallets": {
-              "metamask": true
-            },
-            "chain_5": {
-              "tokens": {
-                "count": 120
-              },
-              "chain_6": {
-                "validators": {
-                  "active": 100
-                },
-                "chain_7": {
-                  "staking": {
-                    "enabled": true
-                  },
-                  "chain_8": {
-                    "bridges": {
-                      "ethereum": true
-                    },
-                    "chain_9": {
-                      "security": {
-                        "audit": "passed"
-                      },
-                      "chain_10": {
-                        "governance": {
-                          "dao": "enabled"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
+    },
+    "sorting": {
+      "deliveriesSorted": [
+        {
+          "productId": "<str>",
+          "completedDeliveries": 0
         }
-      }
-    }
-  }
-}
-
-### DATA SOURCE: mohandemo.txt (ID: SOURCE_5)
-{
-  "project": {
-    "level_1": {
-      "id": "PRJ-001",
-      "level_2": {
-        "name": "AI Workflow Engine",
-        "level_3": {
-          "environment": "production",
-          "level_4": {
-            "region": "ap-south-1",
-            "level_5": {
-              "services": {
-                "auth": true,
-                "db": true
-              },
-              "level_6": {
-                "database": {
-                  "type": "postgresql",
-                  "version": "16"
-                },
-                "level_7": {
-                  "cache": {
-                    "enabled": true,
-                    "provider": "redis"
-                  },
-                  "level_8": {
-                    "monitoring": {
-                      "tool": "grafana"
-                    },
-                    "level_9": {
-                      "alerts": {
-                        "email": true,
-                        "slack": true
-                      },
-                      "level_10": {
-                        "deployment": {
-                          "strategy": "blue-green",
-                          "status": "active"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
+      ],
+      "accuracySorted": [
+        {
+          "model": "<str>",
+          "accuracy": 0
         }
+      ]
+    },
+    "metadata": {
+      "recursiveDepth": 0,
+      "flattenedKeys": [
+        "<str>"
+      ],
+      "duplicatesRemoved": {
+        "suppliers": 0
       }
     }
   }
