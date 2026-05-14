@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import ReactJson from 'react-json-view';
 import {
   Braces,
   Copy,
@@ -25,6 +24,74 @@ import { Modal, Button } from 'react-bootstrap';
 import useConverterStore from '../../store/useConverterStore';
 import CodeEditor from '../UI/CodeEditor';
 import SyntaxGuidePanel from '../UI/SyntaxGuidePanel';
+
+const JsonTree = ({ data, level = 0 }) => {
+  const [isOpen, setIsOpen] = React.useState(level < 2);
+  const isArray = Array.isArray(data);
+  const isObject = data !== null && typeof data === 'object';
+
+  if (!isObject) {
+    return <JsonPrimitive value={data} />;
+  }
+
+  const entries = isArray ? data.map((value, index) => [index, value]) : Object.entries(data);
+  const openLabel = isArray ? '[' : '{';
+  const closeLabel = isArray ? ']' : '}';
+
+  return (
+    <div className="font-mono text-[13px] leading-6 text-[var(--text-primary)]">
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        className="inline-flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--accent-teal)]"
+      >
+        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <span>{openLabel}</span>
+        {!isOpen && (
+          <span className="text-[var(--text-muted)]">
+            {entries.length} {isArray ? 'items' : 'keys'} {closeLabel}
+          </span>
+        )}
+      </button>
+
+      {isOpen && (
+        <>
+          <div className="pl-5 border-l border-[var(--border-subtle)]">
+            {entries.map(([key, value]) => (
+              <div key={key} className="flex items-start gap-2">
+                <span className="text-sky-500 shrink-0">
+                  {isArray ? key : `"${key}"`}:
+                </span>
+                <JsonTree data={value} level={level + 1} />
+              </div>
+            ))}
+          </div>
+          <span className="text-[var(--text-secondary)]">{closeLabel}</span>
+        </>
+      )}
+    </div>
+  );
+};
+
+const JsonPrimitive = ({ value }) => {
+  if (value === null) {
+    return <span className="font-mono text-[13px] text-purple-500">null</span>;
+  }
+
+  if (typeof value === 'string') {
+    return <span className="font-mono text-[13px] text-emerald-600">{JSON.stringify(value)}</span>;
+  }
+
+  if (typeof value === 'number') {
+    return <span className="font-mono text-[13px] text-amber-600">{value}</span>;
+  }
+
+  if (typeof value === 'boolean') {
+    return <span className="font-mono text-[13px] text-indigo-500">{String(value)}</span>;
+  }
+
+  return <span className="font-mono text-[13px] text-[var(--text-muted)]">{String(value)}</span>;
+};
 
 const AppLayout = () => {
   const {
@@ -1138,23 +1205,7 @@ const AppLayout = () => {
 
             {isTreeView ? (
               <div className="h-full overflow-auto p-4 custom-json-view bg-[var(--bg-editor)]">
-                {(() => {
-                  const JsonView = ReactJson.default || ReactJson;
-                  return (
-                    <JsonView
-                      key={outputJson}
-                      src={getParsedJson()}
-                      theme={theme === 'dark' ? 'monokai' : 'rgh'}
-                      iconStyle="triangle"
-                      collapsed={2}
-                      enableClipboard={false}
-                      displayDataTypes={false}
-                      displayObjectSize={true}
-                      indentWidth={2}
-                      style={{ backgroundColor: 'transparent', fontSize: '13px', fontFamily: 'var(--font-mono)' }}
-                    />
-                  );
-                })()}
+                <JsonTree key={outputJson} data={getParsedJson()} />
               </div>
             ) : (
               <div className="h-full">
