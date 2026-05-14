@@ -18,11 +18,13 @@ import {
   ChevronDown,
   ChevronRight,
   AlertCircle,
-  Eye
+  Eye,
+  HelpCircle
 } from 'lucide-react';
 import { Modal, Button } from 'react-bootstrap';
 import useConverterStore from '../../store/useConverterStore';
 import CodeEditor from '../UI/CodeEditor';
+import SyntaxGuidePanel from '../UI/SyntaxGuidePanel';
 
 const AppLayout = () => {
   const {
@@ -66,6 +68,7 @@ const AppLayout = () => {
   // Modal state
   const [showViewModal, setShowViewModal] = React.useState(false);
   const [viewData, setViewData] = React.useState({ title: '', content: '' });
+  const [showSyntaxGuide, setShowSyntaxGuide] = React.useState(false);
 
   const handleOpenViewModal = (title, content) => {
     setViewData({ title, content });
@@ -534,11 +537,21 @@ const AppLayout = () => {
           {/* AI Prompt Command Center */}
           <div className="flex-shrink-0 bg-[var(--bg-secondary)] border-t border-[var(--border-subtle)] p-6 z-40 relative shadow-[0_-10px_20px_rgba(0,0,0,0.02)]">
             <div className="max-w-4xl mx-auto flex flex-col gap-3 group">
-              {/* <div className="flex items-center gap-2 px-1">
-                <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent-teal)] shadow-[0_0_8px_var(--accent-teal)]" />
-                <span className="text-[10px] font-black text-[var(--text-muted)]  tracking-[0.2em]">Send Command</span>
-              </div> */}
-              <div className="relative rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-primary)]/50 focus-within:border-[var(--accent-teal)] focus-within:ring-4 ring-[var(--accent-teal)]/5 transition-all duration-300">
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent-teal)] shadow-[0_0_8px_var(--accent-teal)]" />
+                  <span className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">Send Command</span>
+                </div>
+                <button
+                  onClick={() => setShowSyntaxGuide(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--accent-teal)]/10 border border-[var(--accent-teal)]/20 text-[var(--accent-teal)] hover:bg-[var(--accent-teal)]/20 hover:border-[var(--accent-teal)]/40 transition-all group"
+                  title="View Syntax Guide"
+                >
+                  <HelpCircle size={14} className="group-hover:rotate-12 transition-transform" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">Syntax Guide</span>
+                </button>
+              </div>
+              <div className="relative flex-1 min-h-[80px] rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-primary)]/50 focus-within:border-[var(--accent-teal)] focus-within:ring-4 ring-[var(--accent-teal)]/5 transition-all duration-300">
                 {/* Mention Suggestions */}
                 {showMentions && (
                   <div className="absolute bottom-full left-0 mb-2 w-64 bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-xl shadow-2xl overflow-hidden z-50 animate-in slide-in-from-bottom-2 duration-200">
@@ -1155,6 +1168,12 @@ const AppLayout = () => {
           </div>
         </section>
       </main>
+
+      {/* Syntax Guide Panel */}
+      <SyntaxGuidePanel 
+        isOpen={showSyntaxGuide} 
+        onClose={() => setShowSyntaxGuide(false)} 
+      />
 
       {/* View Content Modal */}
       <Modal

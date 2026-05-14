@@ -96,7 +96,14 @@ const PIPELINE_INSTRUCTIONS = await fs.readFile(
   return '';
 });
 
-console.log(`[CONFIG] light=${AI_MODEL_LIGHT}, merge=${AI_MODEL_MERGE}, instructions=${MERGE_INSTRUCTIONS.length} chars, standardize=${STANDARDIZE_PROMPT.length} chars, join=${JOIN_INSTRUCTIONS.length} chars, pipeline=${PIPELINE_INSTRUCTIONS.length} chars`);
+const UNDERSTANDING_INSTRUCTIONS = await fs.readFile(
+  path.join(process.cwd(), 'understanding_instructions.txt'), 'utf-8'
+).catch(() => {
+  console.error('[WARN] understanding_instructions.txt not found, using fallback');
+  return '';
+});
+
+console.log(`[CONFIG] light=${AI_MODEL_LIGHT}, merge=${AI_MODEL_MERGE}, instructions=${MERGE_INSTRUCTIONS.length} chars, standardize=${STANDARDIZE_PROMPT.length} chars, join=${JOIN_INSTRUCTIONS.length} chars, pipeline=${PIPELINE_INSTRUCTIONS.length} chars, understanding=${UNDERSTANDING_INSTRUCTIONS.length} chars`);
 
 // ─────────────────────────────────────────────
 // UTILS
@@ -350,11 +357,609 @@ const extractMentionedSourceIds = (promptText) => {
   return [...ids];
 };
 
+const buildSourceAliases = (sourceId, sourceName = '') => {
+  const aliases = new Set([sourceId]);
+  const sourceNumber = String(sourceId).match(/SOURCE_(\d+)/i)?.[1];
+
+  if (sourceNumber) {
+    aliases.add(`Source ${sourceNumber}`);
+    aliases.add(`@Source ${sourceNumber}`);
+    aliases.add(`Source${sourceNumber}`);
+    aliases.add(`@Source${sourceNumber}`);
+  }
+
+  const trimmedName = String(sourceName || '').trim();
+  if (trimmedName) {
+    aliases.add(trimmedName);
+    aliases.add(`@${trimmedName}`);
+
+    const basename = trimmedName.replace(/\.[^.]+$/, '').trim();
+    if (basename && basename !== trimmedName) {
+      aliases.add(basename);
+      aliases.add(`@${basename}`);
+    }
+  }
+
+  return [...aliases];
+};
+
+const buildSourceReferenceGuide = (sourceNames) =>
+  Object.entries(sourceNames)
+    .map(([sourceId, sourceName]) =>
+      `- ${sourceId}: display_name=${JSON.stringify(sourceName)}, aliases=${JSON.stringify(buildSourceAliases(sourceId, sourceName))}`
+    )
+    .join('\n');
+
+const buildAiSourceContext = (sources, sourceNames) => ({
+  sourceReferenceGuide: buildSourceReferenceGuide(sourceNames),
+  compressedSources: Object.entries(sources)
+    .map(([id, obj]) => {
+      const name = sourceNames[id] || id;
+      return `### ${name} (ID: ${id})\n${JSON.stringify(compressJson(obj), null, 2)}`;
+    })
+    .join('\n\n')
+});
+
 // ─────────────────────────────────────────────
 // FIX ③ — FULL OPERATION PARSERS
 // extractDynamicQuery now returns ALL operation
 // types: filter, group, sort, select, count, unique
 // ─────────────────────────────────────────────
+
+const splitTopLevelComma = (text) => {
+  const parts = [];
+  let current = '';
+  let quote = null;
+  let bracketDepth = 0;
+
+  for (const ch of text) {
+    if (quote) {
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+
+    if (ch === '[' || ch === '(' || ch === '{') bracketDepth++;
+    if (ch === ']' || ch === ')' || ch === '}') bracketDepth--;
+
+    // Split on comma OR newline at top level
+    if ((ch === ',' || ch === '\n') && bracketDepth === 0) {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    // Skip carriage return
+    if (ch === '\r') continue;
+
+    current += ch;
+  }
+
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+};
+
+const splitFirstColon = (text) => {
+  let quote = null;
+  let bracketDepth = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+
+    if (ch === '[' || ch === '(' || ch === '{') bracketDepth++;
+    if (ch === ']' || ch === ')' || ch === '}') bracketDepth--;
+    if (ch === ':' && bracketDepth === 0) return [text.slice(0, i), text.slice(i + 1)];
+  }
+
+  return null;
+};
+
+const normalizeComposeKey = (key) =>
+  String(key || '').trim().replace(/^["']|["']$/g, '').trim();
+
+const resolveSourceReference = (rawRef, sources, sourceNames) => {
+  const ref = String(rawRef || '').trim().replace(/^@/, '');
+  const sourceMatch = ref.match(/^source\s*[_-]?\s*(\d+)\b/i);
+  if (sourceMatch) return `SOURCE_${sourceMatch[1]}`;
+
+  for (const [sourceId, sourceName] of Object.entries(sourceNames)) {
+    const aliases = buildSourceAliases(sourceId, sourceName).map(a =>
+      String(a).replace(/^@/, '').toLowerCase()
+    );
+    if (aliases.includes(ref.toLowerCase())) return sourceId;
+  }
+
+  return sources[ref] ? ref : null;
+};
+
+const readCaseInsensitivePath = (data, pathArr) => {
+  let value = data;
+  for (const seg of pathArr) {
+    if (value === null || value === undefined) return undefined;
+    if (Array.isArray(value) && !Number.isNaN(Number(seg))) {
+      value = value[Number(seg)];
+      continue;
+    }
+    if (isPlainObject(value)) {
+      const actualKey = Object.keys(value).find(k => k.toLowerCase() === String(seg).toLowerCase());
+      value = actualKey ? value[actualKey] : undefined;
+      continue;
+    }
+    return undefined;
+  }
+  return value;
+};
+
+const normalizePathSegment = (seg) => String(seg).toLowerCase();
+
+const pathEndsWith = (candidatePath, requestedPath) => {
+  if (requestedPath.length > candidatePath.length) return false;
+  const offset = candidatePath.length - requestedPath.length;
+  return requestedPath.every((seg, i) =>
+    normalizePathSegment(candidatePath[offset + i]) === normalizePathSegment(seg)
+  );
+};
+
+const findPathBySuffix = (data, requestedPath) => {
+  let found = null;
+  traverse(data, (node, pathArr) => {
+    if (found) return;
+    if (pathEndsWith(pathArr, requestedPath)) found = pathArr;
+  });
+  return found;
+};
+
+const findFirstDescendantWithKey = (node, targetKey) => {
+  const targetLower = normalizePathSegment(targetKey);
+  let found = null;
+
+  traverse(node, (child, pathArr) => {
+    if (found || pathArr.length === 0) return;
+    const last = pathArr[pathArr.length - 1];
+    if (normalizePathSegment(last) === targetLower) found = { pathArr, value: child };
+  });
+
+  return found;
+};
+
+const readFlexiblePath = (data, pathArr) => {
+  if (!Array.isArray(pathArr) || pathArr.length === 0) {
+    return { value: data, resolvedPath: [] };
+  }
+
+  const directValue = readCaseInsensitivePath(data, pathArr);
+  if (directValue !== undefined) return { value: directValue, resolvedPath: pathArr };
+
+  const suffixPath = findPathBySuffix(data, pathArr);
+  if (suffixPath) {
+    return {
+      value: readCaseInsensitivePath(data, suffixPath),
+      resolvedPath: suffixPath
+    };
+  }
+
+  let current = data;
+  const resolvedPath = [];
+  for (const seg of pathArr) {
+    if (current === null || current === undefined) return { value: undefined, resolvedPath };
+
+    if (Array.isArray(current) && !Number.isNaN(Number(seg))) {
+      const idx = Number(seg);
+      current = current[idx];
+      resolvedPath.push(String(idx));
+      continue;
+    }
+
+    if (isPlainObject(current)) {
+      const actualKey = Object.keys(current).find(k => k.toLowerCase() === String(seg).toLowerCase());
+      if (actualKey) {
+        current = current[actualKey];
+        resolvedPath.push(actualKey);
+        continue;
+      }
+    }
+
+    if (Number.isNaN(Number(seg))) {
+      const descendant = findFirstDescendantWithKey(current, seg);
+      if (!descendant) return { value: undefined, resolvedPath };
+      current = descendant.value;
+      resolvedPath.push(...descendant.pathArr);
+      continue;
+    }
+
+    return { value: undefined, resolvedPath };
+  }
+
+  return { value: current, resolvedPath };
+};
+
+const setCaseInsensitivePath = (data, pathArr, value) => {
+  if (!Array.isArray(pathArr) || pathArr.length === 0) return value;
+
+  let current = data;
+  for (let i = 0; i < pathArr.length - 1; i++) {
+    const seg = String(pathArr[i]);
+    if (Array.isArray(current) && !Number.isNaN(Number(seg))) {
+      const idx = Number(seg);
+      if (!isPlainObject(current[idx]) && !Array.isArray(current[idx])) current[idx] = {};
+      current = current[idx];
+      continue;
+    }
+
+    if (!isPlainObject(current)) {
+      throw new Error(`Cannot set path through non-object segment "${seg}"`);
+    }
+
+    const actualKey = Object.keys(current).find(k => k.toLowerCase() === seg.toLowerCase()) || seg;
+    if (!isPlainObject(current[actualKey]) && !Array.isArray(current[actualKey])) current[actualKey] = {};
+    current = current[actualKey];
+  }
+
+  const lastSeg = String(pathArr[pathArr.length - 1]);
+  if (Array.isArray(current) && !Number.isNaN(Number(lastSeg))) {
+    current[Number(lastSeg)] = value;
+    return data;
+  }
+
+  if (!isPlainObject(current)) {
+    throw new Error(`Cannot set final path on non-object segment "${lastSeg}"`);
+  }
+
+  const actualLastKey = Object.keys(current).find(k => k.toLowerCase() === lastSeg.toLowerCase()) || lastSeg;
+  current[actualLastKey] = value;
+  return data;
+};
+
+const parsePathExpression = (rawPath) => {
+  const trimmed = String(rawPath || '').trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(trimmed.replace(/'/g, '"'));
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {}
+  }
+
+  return trimmed
+    .replace(/^\./, '')
+    .replace(/\[(\d+)\]/g, '.$1')
+    .split('.')
+    .map(s => s.trim())
+    .filter(Boolean);
+};
+
+const splitSourceValueExpression = (valueExpression, sourceNames) => {
+  const expression = String(valueExpression || '').trim();
+  const lowerExpression = expression.toLowerCase();
+  const candidates = [];
+
+  for (const [sourceId, sourceName] of Object.entries(sourceNames)) {
+    for (const alias of buildSourceAliases(sourceId, sourceName)) {
+      candidates.push({ sourceId, alias });
+    }
+  }
+
+  candidates.sort((a, b) => b.alias.length - a.alias.length);
+
+  for (const { sourceId, alias } of candidates) {
+    const lowerAlias = alias.toLowerCase();
+    if (
+      lowerExpression === lowerAlias ||
+      lowerExpression.startsWith(`${lowerAlias}.`) ||
+      lowerExpression.startsWith(`${lowerAlias} `) ||
+      lowerExpression.startsWith(`${lowerAlias}[`)
+    ) {
+      return {
+        sourceId,
+        pathExpression: expression.slice(alias.length).trim()
+      };
+    }
+  }
+
+  return null;
+};
+
+const tryObjectCompositionPrompt = (promptText, sources, sourceNames) => {
+  const text = String(promptText || '').trim();
+  if (!text.startsWith('{') || !text.endsWith('}')) return null;
+
+  const body = text.slice(1, -1).trim();
+  if (!body) return null;
+
+  const result = {};
+  const entries = splitTopLevelComma(body);
+  if (entries.length === 0) return null;
+
+  for (const entry of entries) {
+    const pair = splitFirstColon(entry);
+    if (!pair) return null;
+
+    const key = normalizeComposeKey(pair[0]);
+    if (!key) return null;
+
+    const valueExpression = pair[1].trim();
+    const sourceExpression = splitSourceValueExpression(valueExpression, sourceNames);
+    if (!sourceExpression) return null;
+    const sourceId = resolveSourceReference(sourceExpression.sourceId, sources, sourceNames);
+    if (!sourceId || !sources[sourceId]) return null;
+
+    const pathArr = parsePathExpression(sourceExpression.pathExpression);
+    
+    // Use flexible path resolution to find keys at any depth
+    let value;
+    if (pathArr.length > 0) {
+      const flexResult = readFlexiblePath(sources[sourceId], pathArr);
+      value = flexResult.value;
+      if (value !== undefined) {
+        console.log(`[COMPOSE] "${key}": resolved path ${pathArr.join('.')} -> ${flexResult.resolvedPath.join('.')}`);
+      }
+    } else {
+      value = sources[sourceId];
+    }
+
+    if (value === undefined) {
+      throw new Error(`Path not found for "${key}": ${sourceExpression.pathExpression}. Check if the path exists in your data.`);
+    }
+
+    result[key] = value;
+  }
+
+  return result;
+};
+
+const splitSourceAndPathExpression = (text) => {
+  const match = String(text || '').trim().match(/@?source\s*[_-]?\s*(\d+)\b(.*)$/i);
+  if (!match) return null;
+  return {
+    sourceId: `SOURCE_${match[1]}`,
+    pathExpression: match[2].trim()
+  };
+};
+
+const tryNaturalComposePrompt = (promptText, sources, sourceNames) => {
+  const text = String(promptText || '').trim();
+  // Check for any @ reference (could be @Source N or @filename.txt)
+  if (!text || !/@/i.test(text)) return null;
+
+  // Detect if user wants array output: "array of objects", "list of objects", "[]", etc.
+  const wantsArray = /\b(array|list)\s+(of\s+)?(objects?|items?)\b/i.test(text) || 
+                     /^\s*\[/.test(text) || 
+                     /create\s+\[/i.test(text);
+  
+  const items = [];  // For array format
+  const result = {}; // For object format
+  
+  // Helper to resolve source reference (file name or Source N) to SOURCE_ID
+  const resolveRef = (ref) => {
+    const cleaned = String(ref || '').trim().replace(/^@/, '');
+    // Check if it's "Source N" format
+    const sourceMatch = cleaned.match(/^source\s*[_-]?\s*(\d+)\b/i);
+    if (sourceMatch) return `SOURCE_${sourceMatch[1]}`;
+    // Check by file name
+    if (sourceNames) {
+      for (const [sourceId, sourceName] of Object.entries(sourceNames)) {
+        if (sourceName.toLowerCase() === cleaned.toLowerCase()) return sourceId;
+        // Also try without extension
+        const nameWithoutExt = sourceName.replace(/\.[^.]+$/, '');
+        if (nameWithoutExt.toLowerCase() === cleaned.toLowerCase()) return sourceId;
+      }
+    }
+    return null;
+  };
+
+  // Split text by commas (respecting brackets)
+  const segments = [];
+  let current = '';
+  let bracketDepth = 0;
+  for (const ch of text) {
+    if (ch === '[' || ch === '{' || ch === '(') bracketDepth++;
+    if (ch === ']' || ch === '}' || ch === ')') bracketDepth--;
+    if (ch === ',' && bracketDepth === 0) {
+      segments.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) segments.push(current.trim());
+
+  // ─────────────────────────────────────────
+  // PHASE 1: Identify base assignments ("key": @source)
+  // These establish which sources are "active bases"
+  // ─────────────────────────────────────────
+  const baseAssignments = {};  // { outputKey: { sourceId, data } }
+  const activeSourceIds = new Set();  // Track which sources are used as bases
+  
+  for (const segment of segments) {
+    // Match: "key" : @source (optional path)
+    const quotedKeyPattern = /^["']([^"']+)["']\s*:\s*@([^\s,\[]+)(?:\s+([a-zA-Z0-9_.]+))?$/i;
+    const quotedMatch = segment.match(quotedKeyPattern);
+    if (quotedMatch) {
+      const key = quotedMatch[1].trim();
+      const sourceRef = quotedMatch[2].trim();
+      const pathStr = quotedMatch[3] || '';
+      const sourceId = resolveRef(sourceRef);
+      
+      if (sourceId && sources[sourceId]) {
+        const pathArr = parsePathExpression(pathStr);
+        let value;
+        if (pathArr.length > 0) {
+          const resolved = readFlexiblePath(sources[sourceId], pathArr);
+          if (resolved.value === undefined) {
+            throw new Error(`Path not found for "${key}": ${sourceId} ${pathStr}`);
+          }
+          value = structuredClone(resolved.value);
+          console.log(`[COMPOSE] Base: "${key}" -> ${sourceId}.${resolved.resolvedPath.join('.')}`);
+        } else {
+          value = structuredClone(sources[sourceId]);
+          console.log(`[COMPOSE] Base: "${key}" -> ${sourceId} (entire)`);
+        }
+        baseAssignments[key] = { sourceId, sourceRef, data: value };
+        activeSourceIds.add(sourceId);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────
+  // PHASE 2: Process injections (@source[path]: @value_source)
+  // Only inject into sources that are active bases
+  // ─────────────────────────────────────────
+  for (const segment of segments) {
+    // Match: @source[path] : @other_source
+    const injectionPattern = /@([^\s\[]+)\s*\[([^\]]+)\]\s*:\s*@([^\s,]+)/i;
+    const injectionMatch = segment.match(injectionPattern);
+    if (injectionMatch) {
+      const targetSourceRef = injectionMatch[1].trim();
+      const injectPath = injectionMatch[2].trim();
+      const valueSourceRef = injectionMatch[3].trim();
+      
+      const targetSourceId = resolveRef(targetSourceRef);
+      const valueSourceId = resolveRef(valueSourceRef);
+      
+      // Only process if target source is an active base
+      if (!activeSourceIds.has(targetSourceId)) {
+        console.log(`[COMPOSE] Skipped injection: @${targetSourceRef}[${injectPath}] (source not used as base)`);
+        continue;
+      }
+      
+      if (!valueSourceId || !sources[valueSourceId]) {
+        console.log(`[COMPOSE] Skipped injection: value source @${valueSourceRef} not found`);
+        continue;
+      }
+      
+      // Find which base assignment uses this source and inject into it
+      for (const [outputKey, assignment] of Object.entries(baseAssignments)) {
+        if (assignment.sourceId === targetSourceId) {
+          // Inject the value into the base data at the specified path
+          const pathArr = parsePathExpression(injectPath);
+          if (pathArr.length > 0) {
+            setCaseInsensitivePath(assignment.data, pathArr, structuredClone(sources[valueSourceId]));
+            console.log(`[COMPOSE] Injected: @${valueSourceRef} -> "${outputKey}".${pathArr.join('.')}`);
+          }
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────
+  // PHASE 3: Build final result from base assignments
+  // ─────────────────────────────────────────
+  if (Object.keys(baseAssignments).length > 0) {
+    for (const [key, assignment] of Object.entries(baseAssignments)) {
+      if (wantsArray) {
+        items.push({ [key]: assignment.data });
+      } else {
+        result[key] = assignment.data;
+      }
+    }
+    
+    if (wantsArray && items.length > 0) {
+      console.log(`[COMPOSE] Natural array with injections: ${items.length} items`);
+      return items;
+    }
+    if (Object.keys(result).length > 0) {
+      console.log(`[COMPOSE] Natural object with injections`);
+      return result;
+    }
+  }
+
+  // ─────────────────────────────────────────
+  // FALLBACK: Simple key-value pairs without injection logic
+  // (for cases like "key": @Source 1, "key2": @Source 2)
+  // ─────────────────────────────────────────
+  for (const segment of segments) {
+    // Skip injection patterns (already processed)
+    if (/@[^\s\[]+\s*\[/.test(segment)) continue;
+    
+    // Try: "key" : @source (with optional path after source)
+    const quotedKeyPattern = /["']([^"']+)["']\s*:\s*@([^\s,\[]+)(?:\s+([a-zA-Z0-9_.]+))?/i;
+    const quotedMatch = segment.match(quotedKeyPattern);
+    if (quotedMatch) {
+      const key = quotedMatch[1].trim();
+      const sourceRef = quotedMatch[2].trim();
+      const pathStr = quotedMatch[3] || '';
+      const sourceId = resolveRef(sourceRef);
+      
+      if (sourceId && sources[sourceId]) {
+        const pathArr = parsePathExpression(pathStr);
+        let value;
+        if (pathArr.length > 0) {
+          const resolved = readFlexiblePath(sources[sourceId], pathArr);
+          if (resolved.value === undefined) {
+            throw new Error(`Path not found for "${key}": ${sourceId} ${pathStr}`);
+          }
+          value = resolved.value;
+          console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId}.${resolved.resolvedPath.join('.')}`);
+        } else {
+          value = sources[sourceId];
+          console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId} (entire)`);
+        }
+        if (wantsArray) {
+          items.push({ [key]: value });
+        } else {
+          result[key] = value;
+        }
+        continue;
+      }
+    }
+    
+    // Try: [key] : @source
+    const simpleBracketPattern = /\[([^\]]+)\]\s*:\s*@([^\s,]+)(?:\s+([a-zA-Z0-9_.]+))?/i;
+    const simpleBracketMatch = segment.match(simpleBracketPattern);
+    if (simpleBracketMatch) {
+      const key = simpleBracketMatch[1].trim();
+      const sourceRef = simpleBracketMatch[2].trim();
+      const pathStr = simpleBracketMatch[3] || '';
+      const sourceId = resolveRef(sourceRef);
+      
+      if (sourceId && sources[sourceId]) {
+        const pathArr = parsePathExpression(pathStr);
+        let value;
+        if (pathArr.length > 0) {
+          const resolved = readFlexiblePath(sources[sourceId], pathArr);
+          if (resolved.value === undefined) continue;
+          value = resolved.value;
+          console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId}.${resolved.resolvedPath.join('.')} (bracket key)`);
+        } else {
+          value = sources[sourceId];
+          console.log(`[COMPOSE] Natural: "${key}" -> ${sourceId} (entire, bracket key)`);
+        }
+        if (wantsArray) {
+          items.push({ [key]: value });
+        } else {
+          result[key] = value;
+        }
+        continue;
+      }
+    }
+  }
+  
+  if (wantsArray && items.length > 0) {
+    console.log(`[COMPOSE] Natural array composition: ${items.length} items`);
+    return items;
+  }
+  if (Object.keys(result).length > 0) {
+    return result;
+  }
+
+  return null;
+};
 
 const extractDynamicQuery = (promptText) => {
   const text = String(promptText || '').trim();
@@ -1534,11 +2139,7 @@ const executeUnifiedPipeline = async (plan, sources, sourceNames) => {
  * Generate and execute a unified pipeline using AI
  */
 const runUnifiedPipeline = async (prompt, sources, sourceNames, openai) => {
-  // Compress sources for AI
-  const compressedInput = Object.entries(sources).map(([id, obj]) => {
-    const name = sourceNames[id] || id;
-    return `### DATA SOURCE: ${name} (ID: ${id})\n${JSON.stringify(compressJson(obj), null, 2)}`;
-  }).join('\n\n');
+  const { sourceReferenceGuide, compressedSources } = buildAiSourceContext(sources, sourceNames);
 
   // Call AI to generate complete pipeline plan
   const completion = await openai.chat.completions.create({
@@ -1547,7 +2148,7 @@ const runUnifiedPipeline = async (prompt, sources, sourceNames, openai) => {
       { role: 'system', content: PIPELINE_INSTRUCTIONS },
       {
         role: 'user',
-        content: `## USER PROMPT\n${prompt}\n\n## DATA SOURCES (schema only - keys preserved, values replaced with type placeholders)\n${compressedInput}`
+        content: `## USER PROMPT\n${prompt}\n\n## SOURCE REFERENCES\n${sourceReferenceGuide}\n\n## DATA SOURCES (schema only - keys preserved, values replaced with type placeholders)\n${compressedSources}`
       }
     ],
     response_format: { type: 'json_object' },
@@ -1638,16 +2239,13 @@ const executePipeline = async (ops, sources, sourceNames, prompt, openai) => {
   // ── STAGE 1: MERGE ──────────────────────────
   if (ops.merge.length > 0) {
     const mergePrompt = ops.merge.join('\n');
-    const compressedInput = Object.entries(sources).map(([id, obj]) => {
-      const name = sourceNames[id] || id;
-      return `### DATA SOURCE: ${name} (ID: ${id})\n${JSON.stringify(compressJson(obj), null, 2)}`;
-    }).join('\n\n');
+    const { sourceReferenceGuide, compressedSources } = buildAiSourceContext(sources, sourceNames);
 
     const completion = await openai.chat.completions.create({
       model: AI_MODEL_MERGE,
       messages: [
         { role: 'system', content: MERGE_INSTRUCTIONS },
-        { role: 'user', content: `## USER PROMPT\n${mergePrompt}\n\n## DATA SOURCES\n${compressedInput}` }
+        { role: 'user', content: `## USER PROMPT\n${mergePrompt}\n\n## SOURCE REFERENCES\n${sourceReferenceGuide}\n\n## DATA SOURCES\n${compressedSources}` }
       ],
       response_format: { type: 'json_object' },
       temperature: 0,
@@ -1669,17 +2267,13 @@ const executePipeline = async (ops, sources, sourceNames, prompt, openai) => {
   if (ops.join.length > 0) {
     const joinSources = result ? { MERGED: result, ...sources } : sources;
     const joinSourceNames = result ? { MERGED: 'Merged Result', ...sourceNames } : sourceNames;
-
-    const compressedInput = Object.entries(joinSources).map(([id, obj]) => {
-      const name = joinSourceNames[id] || id;
-      return `### DATA SOURCE: ${name} (ID: ${id})\n${JSON.stringify(compressJson(obj), null, 2)}`;
-    }).join('\n\n');
+    const { sourceReferenceGuide, compressedSources } = buildAiSourceContext(joinSources, joinSourceNames);
 
     const joinCompletion = await openai.chat.completions.create({
       model: AI_MODEL_MERGE,
       messages: [
         { role: 'system', content: JOIN_INSTRUCTIONS },
-        { role: 'user', content: `## USER PROMPT\n${ops.join.join('\n')}\n\n## DATA SOURCES\n${compressedInput}` }
+        { role: 'user', content: `## USER PROMPT\n${ops.join.join('\n')}\n\n## SOURCE REFERENCES\n${sourceReferenceGuide}\n\n## DATA SOURCES\n${compressedSources}` }
       ],
       response_format: { type: 'json_object' },
       temperature: 0,
@@ -1748,7 +2342,6 @@ app.post('/api/convert', upload.array('files'), async (req, res) => {
   // Build source registry
   const sources = {};
   const sourceNames = {};
-  const optimizedBlocks = [];
 
   for (let i = 0; i < parsedInputs.length; i++) {
     const input = parsedInputs[i] || {};
@@ -1774,10 +2367,7 @@ app.post('/api/convert', upload.array('files'), async (req, res) => {
     sourceNames[sourceId] = name;
     const clean = JSON.stringify(parsed, null, 2);
     console.log(`[SOURCE] ${sourceId} = ${name} (${clean.length} chars)`);
-    optimizedBlocks.push(`### DATA SOURCE: ${name} (ID: ${sourceId})\n${clean}`);
   }
-
-  const optimizedInput = optimizedBlocks.join('\n\n');
 
   try {
     // ─────────────────────────────────────────
@@ -1785,120 +2375,60 @@ app.post('/api/convert', upload.array('files'), async (req, res) => {
     // These are so simple they don't need LLM
     // ─────────────────────────────────────────
 
-    const bareSourceMatch = prompt.trim().match(/^@?source\s*(\d+)\s*$/i);
-    if (bareSourceMatch) {
-      const sourceNum = Number(bareSourceMatch[1]);
-      const sourceId = `SOURCE_${sourceNum}`;
-      if (sources[sourceId]) {
-        console.log(`[BARE SOURCE] Returning ${sourceId} directly`);
-        return res.json(sources[sourceId]);
+    // ─────────────────────────────────────────
+    // SIMPLE OBJECT FORMAT - { key: @source, key2: @source path }
+    // Direct object construction without LLM
+    // ─────────────────────────────────────────
+    
+    // ─────────────────────────────────────────
+    try {
+      const composedObject = tryObjectCompositionPrompt(prompt, sources, sourceNames);
+      if (composedObject) {
+        console.log('[COMPOSE] Direct object composition from prompt');
+        return res.json(composedObject);
       }
+    } catch (composeErr) {
+      console.error('[COMPOSE ERROR]', composeErr.message);
+      return res.status(400).json({ 
+        error: 'Object composition failed', 
+        details: composeErr.message,
+        hint: 'Check that source files and paths exist'
+      });
     }
 
-    // ─────────────────────────────────────────
+    try {
+      const naturalComposedObject = tryNaturalComposePrompt(prompt, sources, sourceNames);
+      if (naturalComposedObject) {
+        console.log('[COMPOSE] Natural object composition from prompt');
+        return res.json(naturalComposedObject);
+      }
+    } catch (naturalErr) {
+      console.error('[NATURAL COMPOSE ERROR]', naturalErr.message);
+      return res.status(400).json({ 
+        error: 'Natural composition failed', 
+        details: naturalErr.message,
+        hint: 'Check that source references and paths are valid'
+      });
+    }
+
     // LLM-POWERED PROMPT UNDERSTANDING
     // All other prompts go through LLM for understanding
+    // Instructions loaded from external file for easy modification
     // ─────────────────────────────────────────
 
-    console.log(`[LLM] Enhancing prompt: "${prompt}"`);
-    
-    // Build compressed schema for LLM
-    const compressedSources = Object.entries(sources).map(([id, obj]) => {
-      const name = sourceNames[id] || id;
-      return `### ${name} (ID: ${id})\n${JSON.stringify(compressJson(obj), null, 2)}`;
-    }).join('\n\n');
+    console.log(`[LLM] Planning request from prompt: "${prompt}"`);
+    const { sourceReferenceGuide, compressedSources } = buildAiSourceContext(sources, sourceNames);
 
-    // Ask LLM to understand the prompt and return a structured plan
-    const understandingPrompt = `You are a JSON data assistant. Analyze what the user wants and return a JSON execution plan.
+    // Build understanding prompt dynamically from external instructions file
+    const understandingPrompt = `${UNDERSTANDING_INSTRUCTIONS}
 
 USER REQUEST: ${prompt}
 
+SOURCE REFERENCE DIRECTORY:
+${sourceReferenceGuide}
+
 AVAILABLE DATA SOURCES:
-${compressedSources}
-
-ACTIONS YOU CAN RETURN:
-
-1. EXTRACT - Get data from a specific path in a source
-{ "action": "extract", "source_id": "SOURCE_N", "path": ["key1", "key2", ...], "description": "..." }
-- Use empty path [] to get entire source
-- Use "index": N to get Nth element from array
-
-2. COLLECT - Gather all arrays with a specific name into one flat array  
-{ "action": "collect", "source_id": "SOURCE_N", "array_name": "arrayName", "description": "..." }
-
-3. COMPOSE - Build a NEW custom object with user-defined keys
-{ "action": "compose", "parts": [
-  { "key": "userDefinedKey", "source_id": "SOURCE_N", "type": "collect|path|entire", "array_name": "...", "path": [...] }
-], "description": "..." }
-- type "collect": gather all arrays named array_name
-- type "path": extract from specific path  
-- type "entire": include entire source
-
-4. QUERY - Filter/sort/group/count/unique/select/aggregate operations
-{ "action": "query", "operations": [
-  { "op": "group", "collection": "tasks", "by": "status" },
-  { "op": "group", "collection": "products", "by": "pricing.currency", "exclude_fields": ["reserved"] },
-  { "op": "group", "collection": "players", "by": "profile.stats.rank.tier", "sort_by": "score", "sort_order": "desc" },
-  { "op": "group", "collection": "tasks", "by": "status", "nested_group": { "by": "employee.role" } },
-  { "op": "filter", "collection": "departments", "field": "name", "value": "Engineering" },
-  { "op": "sort", "collection": "items", "field": "price", "order": "desc" },
-  { "op": "count", "collection": "tasks", "by": "status" },
-  { "op": "unique", "collection": "tasks", "field": "status" },
-  { "op": "select", "collection": "users", "fields": ["name", "email"] },
-  { "op": "sum", "collection": "orders", "field": "amount" },
-  { "op": "avg", "collection": "products", "field": "price" },
-  { "op": "limit", "collection": "results", "count": 10 }
-] }
-
-OPERATION TYPES:
-- "group": Group items by field. Supports nested paths, sorting within groups, field exclusions.
-- "filter": Keep items matching condition. field + value required.
-- "sort": Sort collection by field. order = "asc" or "desc".
-- "count": Count items per unique value of a field. Returns { counts: { value1: N, value2: M } }.
-- "unique": Get distinct values of a field. Returns { values: [...] }.
-- "select": Project only specific fields from items.
-- "sum": Sum numeric values of a field.
-- "avg": Calculate average of numeric field.
-- "limit": Limit results to N items.
-
-GROUP OPERATION SYNTAX:
-- "by": Field to group by. Supports nested paths like "profile.stats.rank.tier"
-- "exclude_fields": Fields to remove. Supports nested paths like ["contact.phone"]
-- "sort_by" + "sort_order": Sort items within each group
-- "nested_group": { "by": "field" } - Group again inside each group
-
-COLLECTION PATH PATTERNS:
-- "Group company.departments.projects.modules.tasks by status" → collection = "tasks", by = "status"
-- "Group products by pricing.currency" → collection = "products", by = "pricing.currency"
-- "without medications" → exclude_fields = ["medications"]
-- "Count tasks by status" → op = "count", collection = "tasks", by = "status"
-- "Get unique status from tasks" → op = "unique", collection = "tasks", field = "status"
-
-5. MERGE - Combine entire source structures into one tree
-{ "action": "merge", "description": "..." }
-
-6. ERROR - When request is unclear or field doesn't exist
-{ "action": "error", "message": "..." }
-
-DECISION LOGIC:
-- "count X by Y" or "how many X per Y" → QUERY with op="count"
-- "unique/distinct values of X" → QUERY with op="unique"
-- "sum/total of X" → QUERY with op="sum"
-- "average of X" → QUERY with op="avg"
-- "first N" or "limit N" → QUERY with op="limit"
-- User wants to GROUP/FILTER/SORT data → QUERY
-- User wants to BUILD/CREATE a new object with specific keys → COMPOSE
-- User wants to get/access specific data from one source → EXTRACT  
-- User wants all instances of X combined into one array → COLLECT
-- User wants to EMBED/ADD sources into each other at specific paths → MERGE
-- User mentions multiple sources with hierarchical embedding instructions → MERGE
-- User specifies a "main object" or "root" with other sources to be added → MERGE
-- Look at the DATA SOURCES schema to find correct paths
-- @Source 1, @Source1, Source 1 = SOURCE_1
-- Be flexible with key names - find closest match in schema
-- If a field doesn't exist, still try the operation - let the executor handle gracefully
-
-Return ONLY valid JSON.`;
+${compressedSources}`;
 
     const understandingResponse = await openai.chat.completions.create({
       model: AI_MODEL_LIGHT,
@@ -1975,12 +2505,6 @@ Return ONLY valid JSON.`;
             }
           }
           if (result !== undefined) {
-            // Return with the key name for context
-            const lastKey = plan.path[plan.path.length - 1];
-            if (isPlainObject(data)) {
-              const actualKey = Object.keys(data).find(k => k.toLowerCase() === lastKey.toLowerCase()) || lastKey;
-              return res.json({ [actualKey]: result });
-            }
             return res.json(result);
           }
           return res.status(400).json({ error: `Path not found: ${plan.path.join('.')}` });
@@ -2021,17 +2545,61 @@ Return ONLY valid JSON.`;
       // COMPOSE action - build custom object from parts of multiple sources
       if (plan.action === 'compose' && Array.isArray(plan.parts)) {
         const result = {};
+        const composeSources = {};
+        for (const [id, source] of Object.entries(sources)) {
+          composeSources[id] = structuredClone(source);
+        }
+
+        if (Array.isArray(plan.mutations)) {
+          for (const mutation of plan.mutations) {
+            const targetSourceId = mutation.target_source_id || mutation.source_id;
+            const valueSourceId = mutation.value_source_id;
+
+            if (!composeSources[targetSourceId]) {
+              return res.status(400).json({
+                error: `Mutation target source ${targetSourceId} not found`,
+                available: Object.keys(composeSources).map(id => id.replace('SOURCE_', 'Source '))
+              });
+            }
+
+            if (!composeSources[valueSourceId]) {
+              return res.status(400).json({
+                error: `Mutation value source ${valueSourceId} not found`,
+                available: Object.keys(composeSources).map(id => id.replace('SOURCE_', 'Source '))
+              });
+            }
+
+            const mutationPath = mutation.path || mutation.target_path;
+            if (!Array.isArray(mutationPath) || mutationPath.length === 0) {
+              return res.status(400).json({ error: `Mutation path is required for ${targetSourceId}` });
+            }
+
+            const value = mutation.value_type === 'path' && Array.isArray(mutation.value_path)
+              ? readFlexiblePath(composeSources[valueSourceId], mutation.value_path).value
+              : composeSources[valueSourceId];
+
+            if (value === undefined) {
+              return res.status(400).json({
+                error: `Mutation value path not found in ${valueSourceId}`,
+                path: mutation.value_path
+              });
+            }
+
+            setCaseInsensitivePath(composeSources[targetSourceId], mutationPath, structuredClone(value));
+            console.log(`[COMPOSE] Mutated ${targetSourceId}.${mutationPath.join('.')} from ${valueSourceId}`);
+          }
+        }
 
         for (const part of plan.parts) {
           const sourceId = part.source_id;
-          if (!sources[sourceId]) {
+          if (!composeSources[sourceId]) {
             return res.status(400).json({
               error: `Source ${sourceId} not found for key "${part.key}"`,
-              available: Object.keys(sources).map(id => id.replace('SOURCE_', 'Source '))
+              available: Object.keys(composeSources).map(id => id.replace('SOURCE_', 'Source '))
             });
           }
 
-          const data = sources[sourceId];
+          const data = composeSources[sourceId];
 
           if (part.type === 'collect') {
             // Collect all arrays matching the name
@@ -2049,20 +2617,9 @@ Return ONLY valid JSON.`;
 
           } else if (part.type === 'path' && Array.isArray(part.path)) {
             // Extract from specific path
-            let value = data;
-            for (const seg of part.path) {
-              if (value === null || value === undefined) break;
-              if (isPlainObject(value)) {
-                const actualKey = Object.keys(value).find(k => k.toLowerCase() === seg.toLowerCase());
-                value = actualKey ? value[actualKey] : value[seg];
-              } else if (Array.isArray(value) && !isNaN(Number(seg))) {
-                value = value[Number(seg)];
-              } else {
-                value = value[seg];
-              }
-            }
+            const { value, resolvedPath } = readFlexiblePath(data, part.path);
             result[part.key] = value !== undefined ? value : null;
-            console.log(`[COMPOSE] ${part.key}: extracted from path ${part.path.join('.')}`);
+            console.log(`[COMPOSE] ${part.key}: extracted from path ${part.path.join('.')} resolved as ${resolvedPath.join('.')}`);
 
           } else if (part.type === 'entire') {
             // Include entire source
@@ -2141,17 +2698,13 @@ Return ONLY valid JSON.`;
         if (!IS_PROD) {
           await fs.writeFile(path.join(process.cwd(), 'debug_pipeline.json'), JSON.stringify(pipelineResult, null, 2)).catch(() => {});
         }
-        return res.json(pipelineResult.result || pipelineResult);
+        return res.json(pipelineResult.data || pipelineResult);
       }
       
       // JOIN action - LLM decided this is a join operation
       if (plan.action === 'join') {
         console.log('[LLM] Join action detected, proceeding to join planner');
-        
-        const compressedInput = Object.entries(sources).map(([id, obj]) => {
-          const name = sourceNames[id] || id;
-          return `### DATA SOURCE: ${name} (ID: ${id})\n${JSON.stringify(compressJson(obj), null, 2)}`;
-        }).join('\n\n');
+        const { sourceReferenceGuide, compressedSources } = buildAiSourceContext(sources, sourceNames);
 
         const joinCompletion = await openai.chat.completions.create({
           model: AI_MODEL_MERGE,
@@ -2159,7 +2712,7 @@ Return ONLY valid JSON.`;
             { role: 'system', content: JOIN_INSTRUCTIONS },
             {
               role: 'user',
-              content: `## USER PROMPT\n${prompt}\n\n## DATA SOURCES (schema)\n${compressedInput}`
+              content: `## USER PROMPT\n${prompt}\n\n## SOURCE REFERENCES\n${sourceReferenceGuide}\n\n## DATA SOURCES (schema)\n${compressedSources}`
             }
           ],
           response_format: { type: 'json_object' },
@@ -2203,7 +2756,7 @@ Return ONLY valid JSON.`;
       if (!IS_PROD) {
         await fs.writeFile(path.join(process.cwd(), 'debug_pipeline.json'), JSON.stringify(pipelineResult, null, 2)).catch(() => {});
       }
-      return res.json(pipelineResult.result || pipelineResult);
+      return res.json(pipelineResult.data || pipelineResult);
     } catch (pipeErr) {
       console.error('[UNIFIED PIPELINE ERROR]', pipeErr.message);
       return res.status(500).json({ error: 'Pipeline execution failed', details: pipeErr.message });
@@ -2220,5 +2773,16 @@ Return ONLY valid JSON.`;
 });
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+// Serve syntax guide for frontend
+app.get('/api/syntax-guide', async (req, res) => {
+  try {
+    const guidePath = path.join(process.cwd(), 'syntax_guide.json');
+    const guideContent = await fs.readFile(guidePath, 'utf-8');
+    res.json(JSON.parse(guideContent));
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to load syntax guide', details: error.message });
+  }
+});
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
