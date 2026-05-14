@@ -2,74 +2,365 @@
   "mode": "unified_pipeline",
   "plan": {
     "mode": "pipeline",
-    "root_source_id": "SOURCE_2",
+    "root_source_id": "SOURCE_1",
     "stages": [
       {
         "stage": 1,
-        "type": "group",
-        "description": "Group students by CGPA within the university structure.",
+        "type": "merge",
+        "description": "Merge ecommerce inventory into project_alpha",
+        "steps": [
+          {
+            "action": "embed",
+            "parent_source_id": "SOURCE_1",
+            "child_source_id": "SOURCE_2",
+            "anchor_path": [
+              "company",
+              "engineering",
+              "projects",
+              "project_alpha"
+            ],
+            "embed_mode": "merge_keys"
+          }
+        ]
+      },
+      {
+        "stage": 2,
+        "type": "merge",
+        "description": "Attach cloud monitoring logs inside supplier shipping tracking",
+        "steps": [
+          {
+            "action": "embed",
+            "parent_source_id": "SOURCE_2",
+            "child_source_id": "SOURCE_5",
+            "anchor_path": [
+              "regions",
+              "india",
+              "warehouses",
+              "gujarat",
+              "cities",
+              "surat",
+              "inventory",
+              "electronics",
+              "mobiles",
+              "apple",
+              "iphone_15",
+              "variants",
+              "black_256",
+              "supplier",
+              "shipping",
+              "tracking"
+            ],
+            "embed_mode": "merge_keys"
+          }
+        ]
+      },
+      {
+        "stage": 3,
+        "type": "join",
+        "description": "Map university students with HR department using employeeId",
+        "joins": [
+          {
+            "parent_array": "employees",
+            "child_source_id": "SOURCE_3",
+            "child_array": "students",
+            "parent_field": "employeeId",
+            "child_field": "studentId",
+            "embed_as": "studentDetails",
+            "embed_type": "array"
+          }
+        ]
+      },
+      {
+        "stage": 4,
+        "type": "join",
+        "description": "Connect customer transactions with AI fraud detection system using transactionId",
+        "joins": [
+          {
+            "parent_array": "transactions",
+            "child_source_id": "SOURCE_4",
+            "child_array": "transactions",
+            "parent_field": "transactionId",
+            "child_field": "transactionId",
+            "embed_as": "fraudDetection",
+            "embed_type": "array"
+          }
+        ]
+      },
+      {
+        "stage": 5,
+        "type": "transform",
+        "description": "Post-processing operations",
         "operations": [
           {
+            "op": "sort",
+            "collection": "deliveries",
+            "field": "status",
+            "order": "desc",
+            "filter_where": {
+              "field": "status",
+              "value": "completed"
+            }
+          },
+          {
+            "op": "sort",
+            "collection": "aiModels",
+            "field": "accuracy",
+            "order": "asc"
+          },
+          {
+            "op": "filter",
+            "collection": "transactions",
+            "field": "verified",
+            "value": true
+          },
+          {
             "op": "group",
-            "collection": "university.campuses.faculties.programs.semesters.subjects.students",
-            "by": "profile.academic.cgpa"
+            "collection": "analytics",
+            "by": "month"
+          },
+          {
+            "op": "depth_count",
+            "description": "Count nesting depth of all objects"
+          },
+          {
+            "op": "deduplicate",
+            "collection": "suppliers",
+            "by": "supplierId"
+          },
+          {
+            "op": "flatten",
+            "path": "nested.metadata",
+            "target": "flatMetadata"
+          },
+          {
+            "op": "aggregate",
+            "name": "finalAnalytics",
+            "include": [
+              "counts",
+              "groups",
+              "summaries"
+            ]
           }
         ]
       }
     ]
   },
-  "pipelineLog": [],
+  "pipelineLog": [
+    {
+      "stage": 1,
+      "type": "merge",
+      "steps": 1,
+      "status": "collected"
+    },
+    {
+      "stage": 2,
+      "type": "merge",
+      "steps": 1,
+      "status": "collected"
+    },
+    {
+      "stage": "merge_consolidated",
+      "type": "merge",
+      "steps": 2,
+      "status": "success"
+    },
+    {
+      "stage": 3,
+      "type": "join",
+      "joins": 1,
+      "status": "success"
+    },
+    {
+      "stage": 4,
+      "type": "join",
+      "joins": 1,
+      "status": "success"
+    },
+    {
+      "stage": 5,
+      "type": "transform",
+      "operations": 8,
+      "status": "success"
+    }
+  ],
   "data": {
-    "university": {
-      "universityId": "UNI001",
-      "name": "Global Tech University",
-      "campuses": [
-        {
-          "campusId": "CAMP001",
-          "location": {
-            "country": "India",
-            "state": "Maharashtra",
-            "city": "Pune"
-          },
-          "faculties": [
-            {
-              "facultyId": "FAC001",
-              "facultyName": "Computer Science",
-              "programs": [
-                {
-                  "programId": "PROG001",
-                  "programName": "B.Tech AI",
-                  "semesters": [
-                    {
-                      "semesterId": "SEM001",
-                      "subjects": [
-                        {
-                          "subjectId": "SUB001",
-                          "subjectName": "Machine Learning",
-                          "students": [
-                            {
-                              "studentId": "STU001",
-                              "profile": {
-                                "name": {
-                                  "first": "Mohan",
-                                  "last": "Prajapati"
-                                },
-                                "academic": {
-                                  "cgpa": 8.9
+    "companyId": "COMP_1001",
+    "companyName": "TechNova Global",
+    "headOffice": {
+      "country": "India",
+      "state": "Gujarat",
+      "city": "Ahmedabad",
+      "building": {
+        "name": "Titanium Tower",
+        "floors": {
+          "floor_1": {
+            "departments": {
+              "engineering": {
+                "teams": {
+                  "backend": {
+                    "projects": {
+                      "project_alpha": {
+                        "modules": {
+                          "authentication": {
+                            "services": {
+                              "oauthService": {
+                                "versions": {
+                                  "v1": {
+                                    "status": "deprecated",
+                                    "logs": {
+                                      "2026": {
+                                        "january": {
+                                          "week1": {
+                                            "day1": {
+                                              "errors": {
+                                                "critical": {
+                                                  "server": {
+                                                    "node": {
+                                                      "metrics": {
+                                                        "cpu": {
+                                                          "usage": {
+                                                            "peak": {
+                                                              "percentage": 91
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
                                 }
                               }
                             }
-                          ]
+                          }
+                        },
+                        "platformId": "ECOM_9001",
+                        "platformName": "MegaCart",
+                        "regions": {
+                          "india": {
+                            "warehouses": {
+                              "gujarat": {
+                                "cities": {
+                                  "surat": {
+                                    "inventory": {
+                                      "electronics": {
+                                        "mobiles": {
+                                          "apple": {
+                                            "iphone_15": {
+                                              "variants": {
+                                                "black_256": {
+                                                  "supplier": {
+                                                    "supplierId": "SUP_001",
+                                                    "shipping": {
+                                                      "domestic": {
+                                                        "express": {
+                                                          "tracking": {
+                                                            "liveStatus": {
+                                                              "hub": {
+                                                                "vehicle": {
+                                                                  "driver": {
+                                                                    "performance": {
+                                                                      "ratings": {
+                                                                        "monthly": {
+                                                                          "march": {
+                                                                            "week3": {
+                                                                              "deliveries": {
+                                                                                "completed": 340
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            },
+                                                            "cloudProvider": "NeuroCloud",
+                                                            "regions": {
+                                                              "asia": {
+                                                                "india": {
+                                                                  "datacenters": {
+                                                                    "dc_mumbai_01": {
+                                                                      "clusters": {
+                                                                        "cluster_alpha": {
+                                                                          "servers": {
+                                                                            "server_88": {
+                                                                              "containers": {
+                                                                                "kubernetes": {
+                                                                                  "pods": {
+                                                                                    "ai_training": {
+                                                                                      "models": {
+                                                                                        "gpt_custom": {
+                                                                                          "training": {
+                                                                                            "epochs": {
+                                                                                              "epoch_40": {
+                                                                                                "metrics": {
+                                                                                                  "loss": {
+                                                                                                    "validation": {
+                                                                                                      "historical": {
+                                                                                                        "daily": {
+                                                                                                          "hourly": {
+                                                                                                            "minuteWise": {
+                                                                                                              "accuracy": 98.4
+                                                                                                            }
+                                                                                                          }
+                                                                                                        }
+                                                                                                      }
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                              }
+                                                                                            }
+                                                                                          }
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
                         }
-                      ]
+                      }
                     }
-                  ]
+                  }
                 }
-              ]
+              }
             }
-          ]
+          }
         }
-      ]
+      }
     }
   }
 }

@@ -1,17 +1,80 @@
 {
   "mode": "pipeline",
-  "root_source_id": "SOURCE_2",
+  "root_source_id": "SOURCE_1",
   "stages": [
     {
       "stage": 1,
-      "type": "group",
-      "description": "Group students by CGPA within the university structure.",
-      "operations": [
+      "type": "merge",
+      "description": "Merge ecommerce inventory into project_alpha",
+      "steps": [
         {
-          "op": "group",
-          "collection": "university.campuses.faculties.programs.semesters.subjects.students",
-          "by": "profile.academic.cgpa"
+          "action": "embed",
+          "parent_source_id": "SOURCE_1",
+          "child_source_id": "SOURCE_2",
+          "anchor_path": ["company", "engineering", "projects", "project_alpha"],
+          "embed_mode": "merge_keys"
         }
+      ]
+    },
+    {
+      "stage": 2,
+      "type": "merge",
+      "description": "Attach cloud monitoring logs inside supplier shipping tracking",
+      "steps": [
+        {
+          "action": "embed",
+          "parent_source_id": "SOURCE_2",
+          "child_source_id": "SOURCE_5",
+          "anchor_path": ["regions", "india", "warehouses", "gujarat", "cities", "surat", "inventory", "electronics", "mobiles", "apple", "iphone_15", "variants", "black_256", "supplier", "shipping", "tracking"],
+          "embed_mode": "merge_keys"
+        }
+      ]
+    },
+    {
+      "stage": 3,
+      "type": "join",
+      "description": "Map university students with HR department using employeeId",
+      "joins": [
+        {
+          "parent_array": "employees",
+          "child_source_id": "SOURCE_3",
+          "child_array": "students",
+          "parent_field": "employeeId",
+          "child_field": "studentId",
+          "embed_as": "studentDetails",
+          "embed_type": "array"
+        }
+      ]
+    },
+    {
+      "stage": 4,
+      "type": "join",
+      "description": "Connect customer transactions with AI fraud detection system using transactionId",
+      "joins": [
+        {
+          "parent_array": "transactions",
+          "child_source_id": "SOURCE_4",
+          "child_array": "transactions",
+          "parent_field": "transactionId",
+          "child_field": "transactionId",
+          "embed_as": "fraudDetection",
+          "embed_type": "array"
+        }
+      ]
+    },
+    {
+      "stage": 5,
+      "type": "transform",
+      "description": "Post-processing operations",
+      "operations": [
+        { "op": "sort", "collection": "deliveries", "field": "status", "order": "desc", "filter_where": { "field": "status", "value": "completed" } },
+        { "op": "sort", "collection": "aiModels", "field": "accuracy", "order": "asc" },
+        { "op": "filter", "collection": "transactions", "field": "verified", "value": true },
+        { "op": "group", "collection": "analytics", "by": "month" },
+        { "op": "depth_count", "description": "Count nesting depth of all objects" },
+        { "op": "deduplicate", "collection": "suppliers", "by": "supplierId" },
+        { "op": "flatten", "path": "nested.metadata", "target": "flatMetadata" },
+        { "op": "aggregate", "name": "finalAnalytics", "include": ["counts", "groups", "summaries"] }
       ]
     }
   ]

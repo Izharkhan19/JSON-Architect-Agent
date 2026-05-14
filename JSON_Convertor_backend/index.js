@@ -147,6 +147,26 @@ const deepMerge = (target, source) => {
   return source;
 };
 
+const INTERNAL_OUTPUT_KEYS = new Set([
+  '__depth_count',
+  '__transforms',
+  '__finalAnalytics',
+  '__finalSummary'
+]);
+
+const stripInternalOutputFields = (data) => {
+  if (Array.isArray(data)) return data.map(stripInternalOutputFields);
+  if (isPlainObject(data)) {
+    const out = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (INTERNAL_OUTPUT_KEYS.has(key)) continue;
+      out[key] = stripInternalOutputFields(value);
+    }
+    return out;
+  }
+  return data;
+};
+
 const getAtPath = (obj, pathArr) => {
   if (!Array.isArray(pathArr) || pathArr.length === 0)
     throw new Error('anchor_path must be a non-empty array');
@@ -2674,7 +2694,7 @@ const runUnifiedPipeline = async (prompt, sources, sourceNames, openai) => {
     mode: 'unified_pipeline',
     plan: plan,
     pipelineLog,
-    data: result
+    data: stripInternalOutputFields(result)
   };
 };
 
@@ -2804,7 +2824,7 @@ const executePipeline = async (ops, sources, sourceNames, prompt, openai) => {
 
   applyPromptTransforms(result, prompt);
 
-  return { mode: 'pipeline', pipeline: pipelineLog, data: result };
+  return { mode: 'pipeline', pipeline: pipelineLog, data: stripInternalOutputFields(result) };
 };
 
 // ─────────────────────────────────────────────
@@ -3015,7 +3035,7 @@ ${compressedSources}`;
             }
           }
           if (result !== undefined) {
-            return res.json(result);
+            return res.json(stripInternalOutputFields(result));
           }
           return res.status(400).json({ error: `Path not found: ${plan.path.join('.')}` });
         }
@@ -3142,7 +3162,7 @@ ${compressedSources}`;
           }
         }
 
-        return res.json(result);
+        return res.json(stripInternalOutputFields(result));
       }
 
       // QUERY action - convert to legacy format and continue
@@ -3159,7 +3179,7 @@ ${compressedSources}`;
           if (!IS_PROD) {
             await fs.writeFile(path.join(process.cwd(), 'debug_pipeline.json'), JSON.stringify(pipelineResult, null, 2)).catch(() => {});
           }
-          return res.json(pipelineResult.data || pipelineResult);
+          return res.json(stripInternalOutputFields(pipelineResult.data || pipelineResult));
         }
         
         const dynamicQueries = plan.operations.map(op => ({
@@ -3211,7 +3231,7 @@ ${compressedSources}`;
         if (!IS_PROD) {
           await fs.writeFile(path.join(process.cwd(), 'debug_pipeline.json'), JSON.stringify(pipelineResult, null, 2)).catch(() => {});
         }
-        return res.json(pipelineResult.data || pipelineResult);
+        return res.json(stripInternalOutputFields(pipelineResult.data || pipelineResult));
       }
       
       // JOIN action - LLM decided this is a join operation
@@ -3250,7 +3270,7 @@ ${compressedSources}`;
         try {
           const joinResult = executeJoinPlan(joinPlan, sources);
           if (!IS_PROD) await fs.writeFile(path.join(process.cwd(), 'debug_plan.json'), JSON.stringify(joinPlan, null, 2)).catch(() => {});
-          return res.json(joinResult);
+          return res.json(stripInternalOutputFields(joinResult));
         } catch (execErr) {
           return res.status(500).json({ error: 'Join execution failed', details: execErr.message });
         }
@@ -3269,7 +3289,7 @@ ${compressedSources}`;
       if (!IS_PROD) {
         await fs.writeFile(path.join(process.cwd(), 'debug_pipeline.json'), JSON.stringify(pipelineResult, null, 2)).catch(() => {});
       }
-      return res.json(pipelineResult.data || pipelineResult);
+      return res.json(stripInternalOutputFields(pipelineResult.data || pipelineResult));
     } catch (pipeErr) {
       console.error('[UNIFIED PIPELINE ERROR]', pipeErr.message);
       return res.status(500).json({ error: 'Pipeline execution failed', details: pipeErr.message });
